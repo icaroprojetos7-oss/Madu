@@ -77,7 +77,9 @@ describe('admin login page', () => {
     auth.role = null;
     renderLogin();
 
-    expect(screen.getByText('Esta conta não tem autorização para acessar o painel da MADU.')).toBeInTheDocument();
+    expect(screen.getByText(
+      'Esta conta não tem autorização para acessar o painel da MADU neste ambiente.',
+    )).toBeInTheDocument();
     expect(screen.queryByLabelText('Senha')).not.toBeInTheDocument();
   });
 
@@ -111,7 +113,7 @@ describe('admin login page', () => {
     expect(screen.queryByText('Painel protegido')).not.toBeInTheDocument();
   });
 
-  it('explains when authentication succeeds but the account has no linked profile', async () => {
+  it('shows a generic authorization error when authentication succeeds without production access', async () => {
     auth.signIn.mockResolvedValue({ error: null, role: null, permissionIssue: 'missing-profile' });
     renderLogin();
 
@@ -119,7 +121,9 @@ describe('admin login page', () => {
     fireEvent.change(screen.getByLabelText('Senha'), { target: { value: 'secret' } });
     fireEvent.click(screen.getByRole('button', { name: 'Entrar' }));
 
-    expect(await screen.findByRole('alert')).toHaveTextContent('não tem perfil associado ao painel');
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'A autenticação foi concluída, mas esta conta não tem autorização para acessar o painel da MADU.',
+    );
     expect(screen.queryByText('Painel protegido')).not.toBeInTheDocument();
   });
 });

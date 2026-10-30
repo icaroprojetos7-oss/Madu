@@ -10,7 +10,6 @@ export function AdminLoginPage() {
   const {
     user,
     role,
-    permissionIssue,
     roleLoading,
     roleError,
     sessionNotice,
@@ -42,9 +41,7 @@ export function AdminLoginPage() {
         return;
       }
       if (!result.role) {
-        setMessage(result.permissionIssue === 'missing-profile'
-          ? 'A autenticação foi concluída, mas esta conta não tem perfil associado ao painel. Peça a um administrador para verificar o cadastro.'
-          : 'A autenticação foi concluída, mas esta conta não tem autorização para acessar o painel da MADU.');
+        setMessage('A autenticação foi concluída, mas esta conta não tem autorização para acessar o painel da MADU.');
         return;
       }
 
@@ -113,11 +110,9 @@ export function AdminLoginPage() {
             <p role="alert" className="rounded-2xl bg-rose-50 p-3 text-sm text-rose-900">
               {roleError || (
                 <>
-                  {permissionIssue === 'missing-profile'
-                    ? 'Esta conta não tem perfil associado ao painel da MADU.'
-                    : 'Esta conta não tem autorização para acessar o painel da MADU.'}
+                  Esta conta não tem autorização para acessar o painel da MADU neste ambiente.
                   <span className="mt-2 block">
-                    Peça a um administrador para confirmar seu perfil ativo e, depois, encerre a sessão e entre novamente.
+                    Encerre a sessão para entrar com outra conta.
                   </span>
                 </>
               )}

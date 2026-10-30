@@ -3,21 +3,17 @@ import { products as fallbackProducts, type Product } from '../data/mockProducts
 import { validateProductImageFile } from './products';
 
 export const PRODUCT_IMAGES_BUCKET = 'product-images';
-const viteUrl = import.meta.env.VITE_SUPABASE_URL?.trim();
+const viteUrl = import.meta.env.VITE_SUPABASE_URL?.trim() || import.meta.env.NEXT_PUBLIC_SUPABASE_URL?.trim();
 const viteKey = (
   import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY ??
-  import.meta.env.VITE_SUPABASE_ANON_KEY
+  import.meta.env.VITE_SUPABASE_ANON_KEY ??
+  import.meta.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY
 )?.trim();
-const useViteConfig = Boolean(viteUrl || viteKey);
-const supabaseUrl = useViteConfig
-  ? viteUrl
-  : import.meta.env.NEXT_PUBLIC_SUPABASE_URL?.trim();
-const supabaseKey = useViteConfig
-  ? viteKey
-  : import.meta.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY?.trim();
+const supabaseUrl = viteUrl && viteUrl !== 'https://example.supabase.co' ? viteUrl : '';
+const supabaseKey = viteKey && viteKey !== 'replace-with-public-publishable-key' ? viteKey : '';
 
 export const supabase =
-  supabaseUrl && supabaseKey && supabaseUrl !== 'https://example.supabase.co'
+  supabaseUrl && supabaseKey
     ? createClient(supabaseUrl, supabaseKey)
     : null;
 
@@ -25,9 +21,8 @@ export function getSupabaseStatus() {
   if (!supabase) {
     return {
       enabled: false,
-      message: import.meta.env.DEV
-        ? 'Sem credenciais do Supabase. Exibindo catálogo local de demonstração.'
-        : 'Supabase não configurado. O catálogo público está indisponível neste ambiente.',
+      message:
+        'Supabase não configurado. Configure VITE_SUPABASE_URL e VITE_SUPABASE_PUBLISHABLE_KEY (ou VITE_SUPABASE_ANON_KEY) antes do build ou do deploy.',
     };
   }
 

@@ -57,4 +57,20 @@ describe('admin mobile navigation', () => {
     expect(document.body.style.overflow).toBe('');
     expect(screen.queryByRole('dialog', { name: 'Navegação administrativa' })).not.toBeInTheDocument();
   });
+
+  it('shows only the users permissions item in the admin navigation', () => {
+    render(
+      <MaduSidebar
+        activePage="usuarios"
+        mobileOpen
+        onNavigate={mocks.navigate}
+        onLogout={mocks.logout}
+        onClose={mocks.close}
+      />,
+    );
+
+    expect(screen.getByRole('button', { name: /usuários e permissões/i })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /produtos/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /categorias/i })).not.toBeInTheDocument();
+  });
 });

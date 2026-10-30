@@ -5,7 +5,12 @@ import type { ManagedUser } from '../../lib/adminUsers';
 import { useAdminAuth } from '../../context/AdminAuthContext';
 
 export function UserManagement() {
-  const { user: currentUser, refreshRole, refreshSession } = useAdminAuth();
+  const {
+    user: currentUser,
+    developmentAdminOverride,
+    refreshRole,
+    refreshSession,
+  } = useAdminAuth();
   const [users, setUsers] = useState<ManagedUser[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -62,11 +67,17 @@ export function UserManagement() {
           <div>
             <h2 className="text-xl font-semibold text-[#2d1d25]">Administradores autorizados</h2>
             <p className="mt-1 text-sm leading-6 text-[#5d4454]">
-              Apenas contas de painel já autorizadas são listadas. Novos acessos não podem ser concedidos por esta tela.
+              {developmentAdminOverride
+                ? 'No Supabase local, todas as contas autenticadas recebem acesso administrativo temporário. Essa permissão não é gravada.'
+                : 'Apenas contas de painel já autorizadas são listadas. Novos acessos não podem ser concedidos por esta tela.'}
             </p>
           </div>
         </div>
-        <p className="mt-1 text-sm text-[#5d4454]">A permissão é verificada no banco a cada sessão e nas policies RLS.</p>
+        <p className="mt-1 text-sm text-[#5d4454]">
+          {developmentAdminOverride
+            ? 'A exceção depende do issuer local do Supabase e não concede acesso em produção.'
+            : 'A permissão é verificada no banco a cada sessão e nas policies RLS.'}
+        </p>
         {message && <p role="status" className="mt-4 rounded-2xl bg-[#f8e9ef] p-3 text-sm text-[#5d4454]">{message}</p>}
         {error && <p role="alert" className="mt-4 rounded-2xl bg-rose-50 p-3 text-sm text-rose-900">{error}</p>}
 
@@ -85,7 +96,7 @@ export function UserManagement() {
                 </div>
                 <button
                   type="button"
-                  disabled={saving}
+                  disabled={saving || developmentAdminOverride}
                   onClick={() => void handleRevoke(member)}
                   className="inline-flex min-h-11 items-center justify-center gap-2 rounded-full border border-[#efd7e7] px-3 text-xs text-[#76506a] disabled:opacity-50"
                 >

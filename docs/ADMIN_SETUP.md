@@ -6,6 +6,18 @@ Na auditoria de 29/10/2026, `public.products` e o bucket público `product-image
 
 ## Aplicação explícita das migrations
 
+### Acesso administrativo no desenvolvimento local
+
+No Supabase local, qualquer usuário autenticado recebe acesso ao painel para facilitar desenvolvimento e testes. A exceção usa exclusivamente o issuer local `http://127.0.0.1:54321/auth/v1` ou `http://localhost:54321/auth/v1`; ela não cria perfis, não altera `admin_user_permissions` e não se aplica a tokens emitidos por projetos hospedados. A migration correspondente também limita essa exceção aos helpers RLS, e a Edge Function aplica o mesmo limite. Em projetos hospedados, somente administradores ativos já registrados continuam autorizados.
+
+O painel local lista as contas Auth locais, mas não permite revogar o acesso universal de desenvolvimento. Para validar autorização administrativa de produção, use um ambiente hospedado de staging e um perfil de administrador ativo.
+
+O teste de banco verifica os dois lados desse limite sem alterar permissões persistidas:
+
+```bash
+npx supabase test db --local
+```
+
 1. Confirme o Project ref e faça backup do projeto antes de qualquer alteração.
 2. No terminal, vincule o CLI ao projeto correto:
 

@@ -65,11 +65,22 @@ textarea {
   font: inherit;
 }
 
-button,
-input,
+input:not([type="checkbox"]):not([type="radio"]),
 select,
 textarea {
   font-size: 16px;
+}
+
+@media (pointer: coarse) {
+  button {
+    min-height: 44px;
+  }
+}
+
+input,
+select,
+textarea {
+  scroll-margin-block: 1rem;
 }
 
 input,

@@ -80,6 +80,22 @@ function readAllowedOrigins() {
     .filter(Boolean);
 }
 
+function isLocalSupabaseAuthToken(token: string) {
+  try {
+    const payload = token.split('.')[1];
+    if (!payload) return false;
+    const normalizedPayload = payload.replace(/-/g, '+').replace(/_/g, '/');
+    const claims = JSON.parse(atob(normalizedPayload.padEnd(
+      normalizedPayload.length + ((4 - normalizedPayload.length % 4) % 4),
+      '=',
+    ))) as { iss?: unknown };
+    return claims.iss === 'http://127.0.0.1:54321/auth/v1' ||
+      claims.iss === 'http://localhost:54321/auth/v1';
+  } catch {
+    return false;
+  }
+}
+
 async function loadManagedUsers(adminClient: AdminClient) {
   const { data: permissions, error } = await adminClient
     .from('admin_user_permissions')
@@ -106,6 +122,24 @@ async function loadManagedUsers(adminClient: AdminClient) {
     }
     return userSummary(data.user, permission.role);
   }));
+}
+
+async function loadLocalDevelopmentUsers(adminClient: AdminClient) {
+  const users: ReturnType<typeof userSummary>[] = [];
+  for (let page = 1; ; page += 1) {
+    const { data, error } = await adminClient.auth.admin.listUsers({
+      page,
+      perPage: 1000,
+    });
+    if (error) {
+      throw new Error(
+        `Não foi possível carregar os usuários locais: ${error.message}`,
+      );
+    }
+
+    users.push(...data.users.map((user) => userSummary(user, 'admin')));
+    if (data.users.length < 1000) return users;
+  }
 }
 
 function userSummary(
@@ -168,42 +202,49 @@ Deno.serve(async (request) => {
     return jsonResponse({ error: 'Sessão inválida ou expirada.' }, 401, origin);
   }
 
-  const { data: callerPermission, error: permissionError } = await adminClient
-    .from('admin_user_permissions')
-    .select('user_id, email, role, is_active, status')
-    .eq('user_id', authData.user.id)
-    .eq('is_active', true)
-    .eq('status', 'active')
-    .maybeSingle();
+  const localDevelopmentOverride = isLocalSupabaseAuthToken(token);
+  if (!localDevelopmentOverride) {
+    const { data: callerPermission, error: permissionError } = await adminClient
+      .from('admin_user_permissions')
+      .select('user_id, email, role, is_active, status')
+      .eq('user_id', authData.user.id)
+      .eq('is_active', true)
+      .eq('status', 'active')
+      .maybeSingle();
 
-  if (permissionError) {
-    console.error(
-      'Não foi possível verificar o perfil do solicitante.',
-      permissionError,
-    );
-    return jsonResponse(
-      { error: 'Não foi possível verificar as permissões no banco.' },
-      500,
-      origin,
-    );
-  }
-  if (
-    callerPermission?.user_id !== authData.user.id ||
-    callerPermission.is_active !== true ||
-    callerPermission.status !== 'active' ||
-    callerPermission.role !== 'admin'
-  ) {
-    return jsonResponse(
-      { error: 'Somente administradores podem gerenciar usuários.' },
-      403,
-      origin,
-    );
+    if (permissionError) {
+      console.error(
+        'Não foi possível verificar o perfil do solicitante.',
+        permissionError,
+      );
+      return jsonResponse(
+        { error: 'Não foi possível verificar as permissões no banco.' },
+        500,
+        origin,
+      );
+    }
+    if (
+      callerPermission?.user_id !== authData.user.id ||
+      callerPermission.is_active !== true ||
+      callerPermission.status !== 'active' ||
+      callerPermission.role !== 'admin'
+    ) {
+      return jsonResponse(
+        { error: 'Somente administradores podem gerenciar usuários.' },
+        403,
+        origin,
+      );
+    }
   }
 
   try {
     if (request.method === 'GET') {
       return jsonResponse(
-        { users: await loadManagedUsers(adminClient) },
+        {
+          users: localDevelopmentOverride
+            ? await loadLocalDevelopmentUsers(adminClient)
+            : await loadManagedUsers(adminClient),
+        },
         200,
         origin,
       );
@@ -221,13 +262,24 @@ Deno.serve(async (request) => {
 
     if (payload.action === 'list') {
       return jsonResponse(
-        { users: await loadManagedUsers(adminClient) },
+        {
+          users: localDevelopmentOverride
+            ? await loadLocalDevelopmentUsers(adminClient)
+            : await loadManagedUsers(adminClient),
+        },
         200,
         origin,
       );
     }
 
     if (payload.action === 'revoke') {
+      if (localDevelopmentOverride) {
+        return jsonResponse(
+          { error: 'No ambiente local, todas as contas autenticadas mantêm acesso administrativo.' },
+          409,
+          origin,
+        );
+      }
       const userId = payload.userId;
       if (
         !userId ||

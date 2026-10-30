@@ -6,6 +6,32 @@ export type AdminLoginError = {
   status?: number;
 };
 
+const LOCAL_SUPABASE_AUTH_ISSUERS = new Set([
+  'http://127.0.0.1:54321/auth/v1',
+  'http://localhost:54321/auth/v1',
+]);
+
+export function hasDevelopmentAdminOverride(
+  accessToken: string | null | undefined,
+  environment: { DEV: boolean; MODE: string } = import.meta.env,
+) {
+  if ((!environment.DEV && environment.MODE !== 'test') || !accessToken) return false;
+
+  try {
+    const payload = accessToken.split('.')[1];
+    if (!payload) return false;
+    const normalizedPayload = payload.replace(/-/g, '+').replace(/_/g, '/');
+    const claims: unknown = JSON.parse(atob(normalizedPayload.padEnd(
+      normalizedPayload.length + ((4 - normalizedPayload.length % 4) % 4),
+      '=',
+    )));
+    if (typeof claims !== 'object' || claims === null || !('iss' in claims)) return false;
+    return typeof claims.iss === 'string' && LOCAL_SUPABASE_AUTH_ISSUERS.has(claims.iss);
+  } catch {
+    return false;
+  }
+}
+
 export function parseAdminRole(role: unknown): AdminRole | null {
   return role === 'admin' ? role : null;
 }

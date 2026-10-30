@@ -1,4 +1,4 @@
-import { categories, type Product } from '../data/mockProducts';
+import type { Product } from '../data/mockProducts';
 
 export type ProductFormValues = {
   name: string;
@@ -75,7 +75,9 @@ export function validateProductForm(
   const name = values.name.trim();
 
   if (!name) errors.name = 'Informe o nome do produto.';
-  if (!categories.includes(values.category)) errors.category = 'Selecione uma categoria válida.';
+  if (!values.category.trim()) {
+    errors.category = 'Informe a categoria do produto.';
+  }
 
   const priceCents = parsePriceToCents(values.price);
   if (priceCents === null) {

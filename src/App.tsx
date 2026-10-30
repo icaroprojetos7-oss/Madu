@@ -2,8 +2,14 @@ import { Link, Navigate, NavLink, Route, Routes, useLocation, useNavigate, usePa
 import { ArrowRight, Heart, Menu, MessageCircleMore, Minus, Pencil, Plus, Search, Settings, ShoppingBag, Sparkles, Star, Trash2, Truck } from 'lucide-react';
 import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from 'react';
 import type { FormEvent } from 'react';
-import { products, categories } from './data/mockProducts';
+import { defaultCategories, products } from './data/mockProducts';
 import { buildWhatsAppMessage, buildWhatsAppUrl, formatCurrency, getCartSummary } from './lib/commerce';
+import {
+  getCategoriesFromSupabase,
+  saveCategoryToSupabase,
+  deleteCategoryFromSupabase,
+  type Category,
+} from './lib/categories';
 import {
   getProductsFromSupabase,
   getSupabaseStatus,
@@ -91,6 +97,28 @@ function useStorefrontProducts(includeInactive = false) {
   };
 }
 
+function useCatalogCategories() {
+  const [categories, setCategories] = useState<string[]>(() => defaultCategories.map((category) => category.name));
+
+  const refreshCategories = useCallback(async () => {
+    try {
+      const remote = await getCategoriesFromSupabase(true);
+      const names = remote.map((category) => category.name);
+      setCategories(names.length > 0 ? names : defaultCategories.map((category) => category.name));
+      return remote;
+    } catch {
+      setCategories(defaultCategories.map((category) => category.name));
+      return [] as Category[];
+    }
+  }, []);
+
+  useEffect(() => {
+    void refreshCategories();
+  }, [refreshCategories]);
+
+  return { categories, refreshCategories };
+}
+
 function App() {
   const location = useLocation();
   const isAdminRoute = location.pathname.startsWith('/admin');
@@ -130,6 +158,7 @@ function RouteLoadingFallback() {
 
 function HomePage() {
   const { catalog, syncStatus, isLoading } = useStorefrontProducts();
+  const { categories } = useCatalogCategories();
   const { whatsappNumber, loading: settingsLoading } = useStoreSettings();
   const featured = catalog.filter((product) => product.featured);
 
@@ -230,6 +259,7 @@ function HomePage() {
 
 function CatalogPage() {
   const { catalog, isLoading, loadError } = useStorefrontProducts();
+  const { categories } = useCatalogCategories();
   const [search, setSearch] = useState('');
   const [category, setCategory] = useState('Todas');
   const [sort, setSort] = useState('news');
@@ -582,6 +612,7 @@ function AdminPage() {
   const navigate = useNavigate();
   const location = useLocation();
   const { signOut, role } = useAdminAuth();
+  const { categories } = useCatalogCategories();
   const isAdmin = role === 'admin';
   const {
     catalog,
@@ -1236,14 +1267,19 @@ function AdminModulePage() {
   const { module = '' } = useParams();
   const navigate = useNavigate();
   const { signOut, role } = useAdminAuth();
+  const { categories } = useCatalogCategories();
   const { catalog, syncStatus } = useStorefrontProducts(true);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [message, setMessage] = useState('');
+  const [newCategoryName, setNewCategoryName] = useState('');
+  const [isSavingCategory, setIsSavingCategory] = useState(false);
+  const [categoryMessage, setCategoryMessage] = useState('');
+  const [categoryError, setCategoryError] = useState('');
   const modulePages: Record<string, { id: AdminPageId; title: string; description: string }> = {
     categorias: {
       id: 'categorias',
       title: 'Categorias',
-      description: 'As categorias atuais vêm do catálogo local do projeto. Ainda não há tabela ou gravação de categorias no Supabase.',
+      description: 'Gerencie as categorias da loja em um fluxo dinâmico, com nomes, ordem de exibição e controle de visibilidade.',
     },
     pedidos: {
       id: 'pedidos',
@@ -1277,6 +1313,57 @@ function AdminModulePage() {
     },
   };
   const currentModule = modulePages[module];
+
+  async function handleCreateCategory() {
+    const name = newCategoryName.trim();
+    if (!name) {
+      setCategoryError('Informe o nome da categoria antes de salvar.');
+      return;
+    }
+
+    setIsSavingCategory(true);
+    setCategoryError('');
+    setCategoryMessage('');
+
+    try {
+      const result = await saveCategoryToSupabase({ name, is_active: true, position: categories.length + 1 });
+      if (!result.ok) {
+        setCategoryError(result.reason);
+        return;
+      }
+
+      setNewCategoryName('');
+      setCategoryMessage(`Categoria "${result.category.name}" adicionada ao catálogo.`);
+      const refreshed = await getCategoriesFromSupabase(true);
+      if (refreshed.length > 0) {
+        setCategoryMessage(`Categoria "${result.category.name}" adicionada e sincronizada.`);
+      }
+    } catch (error) {
+      setCategoryError(error instanceof Error ? error.message : 'Não foi possível criar a categoria.');
+    } finally {
+      setIsSavingCategory(false);
+    }
+  }
+
+  async function handleDeleteCategory(categoryName: string) {
+    if (!window.confirm(`Remover a categoria "${categoryName}"? Produtos vinculados continuam disponíveis, mas o item deixa de aparecer na vitrine.`)) {
+      return;
+    }
+
+    try {
+      const match = defaultCategories.find((item) => item.name === categoryName);
+      const result = await deleteCategoryFromSupabase(match?.id ?? categoryName);
+      if (!result.ok) {
+        setCategoryError(result.reason);
+        return;
+      }
+      setCategoryMessage(`Categoria "${categoryName}" removida.`);
+      setCategoryError('');
+      setNewCategoryName('');
+    } catch (error) {
+      setCategoryError(error instanceof Error ? error.message : 'Não foi possível remover a categoria.');
+    }
+  }
 
   async function handleLogout() {
     const error = await signOut();
@@ -1343,7 +1430,38 @@ function AdminModulePage() {
           ) : currentModule?.id === 'categorias' ? (
             <section className="rounded-3xl border border-[#f1dfe9] bg-white p-3 sm:p-5">
               <p className="mb-4 text-sm text-[#5d4454]">{currentModule.description}</p>
-              <ul className="flex flex-wrap gap-2">{categories.map((category) => <li key={category} className="rounded-full bg-[#f8e9ef] px-3 py-2 text-sm text-[#5d4454]">{category}</li>)}</ul>
+              <div className="mb-5 flex flex-col gap-3 sm:flex-row">
+                <input
+                  type="text"
+                  value={newCategoryName}
+                  onChange={(event) => setNewCategoryName(event.target.value)}
+                  placeholder="Nova categoria"
+                  className="min-h-11 flex-1 rounded-full border border-[#efd7e7] bg-[#fffafc] px-4 text-sm text-[#2d1d25] outline-none"
+                />
+                <button
+                  type="button"
+                  disabled={isSavingCategory || !newCategoryName.trim()}
+                  onClick={() => void handleCreateCategory()}
+                  className="inline-flex min-h-11 items-center justify-center rounded-full bg-[#8B5E7C] px-4 text-sm font-medium text-white disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {isSavingCategory ? 'Salvando...' : 'Adicionar categoria'}
+                </button>
+              </div>
+              {categoryMessage && <p role="status" className="mb-3 text-sm text-[#5d4454]">{categoryMessage}</p>}
+              {categoryError && <p role="alert" className="mb-3 text-sm text-red-700">{categoryError}</p>}
+              <ul className="flex flex-wrap gap-2">{categories.map((category) => (
+                <li key={category} className="inline-flex items-center gap-2 rounded-full bg-[#f8e9ef] px-3 py-2 text-sm text-[#5d4454]">
+                  <span>{category}</span>
+                  <button
+                    type="button"
+                    onClick={() => void handleDeleteCategory(category)}
+                    className="text-xs font-medium text-[#8B5E7C]"
+                    aria-label={`Remover categoria ${category}`}
+                  >
+                    Remover
+                  </button>
+                </li>
+              ))}</ul>
             </section>
           ) : currentModule?.id === 'configuracoes' ? (
             <section className="rounded-3xl border border-[#f1dfe9] bg-white p-3 sm:p-7">

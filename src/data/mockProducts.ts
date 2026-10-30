@@ -14,17 +14,30 @@ export type Product = {
   variations?: string[];
 };
 
-export const categories = [
-  'Brincos',
-  'Colares',
-  'Anéis',
-  'Pulseiras',
-  'Conjuntos',
-  'Tornozeleiras',
-  'Pingentes',
-  'Lançamentos',
-  'Promoções',
+export type ProductCategoryDefinition = {
+  id: string;
+  name: string;
+  slug: string;
+  description: string;
+  image_url: string;
+  is_active: boolean;
+  position: number;
+};
+
+export const defaultCategories: ProductCategoryDefinition[] = [
+  { id: 'cat-brincos', name: 'Brincos', slug: 'brincos', description: 'Semijoias delicadas e elegantes.', image_url: '', is_active: true, position: 1 },
+  { id: 'cat-colares', name: 'Colares', slug: 'colares', description: 'Peças para compor o visual do dia a dia.', image_url: '', is_active: true, position: 2 },
+  { id: 'cat-aneis', name: 'Anéis', slug: 'aneis', description: 'Acessórios em formatos clássicos e modernos.', image_url: '', is_active: true, position: 3 },
+  { id: 'cat-pulseiras', name: 'Pulseiras', slug: 'pulseiras', description: 'Modelos leves para uso diário e ocasiões especiais.', image_url: '', is_active: true, position: 4 },
+  { id: 'cat-conjuntos', name: 'Conjuntos', slug: 'conjuntos', description: 'Combinações prontas com identidade visual.', image_url: '', is_active: true, position: 5 },
+  { id: 'cat-tornozeleiras', name: 'Tornozeleiras', slug: 'tornozeleiras', description: 'Acessórios femininos com acabamento refinado.', image_url: '', is_active: true, position: 6 },
+  { id: 'cat-sandalias', name: 'Sandálias', slug: 'sandalias', description: 'Calçados femininos com conforto e estilo.', image_url: '', is_active: true, position: 7 },
+  { id: 'cat-bolsas', name: 'Bolsas', slug: 'bolsas', description: 'Acessórios para compor looks e uso cotidiano.', image_url: '', is_active: true, position: 8 },
+  { id: 'cat-roupas', name: 'Roupas', slug: 'roupas', description: 'Peças de moda para diferentes ocasiões.', image_url: '', is_active: true, position: 9 },
+  { id: 'cat-outros', name: 'Outros', slug: 'outros', description: 'Categorias personalizadas da MADU.', image_url: '', is_active: true, position: 10 },
 ];
+
+export const categories = defaultCategories.map((category) => category.name);
 
 export const products: Product[] = [
   {

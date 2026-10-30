@@ -1,5 +1,5 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { AdminAuthProvider, useAdminAuth } from './AdminAuthContext';
 
 const mocks = vi.hoisted(() => ({
@@ -67,6 +67,8 @@ function renderProvider() {
 describe('admin authorization context', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.stubEnv('MODE', 'production');
+    vi.stubEnv('DEV', false);
     delete document.body.dataset.signInResult;
     const query = {
       select: mocks.select,
@@ -83,6 +85,10 @@ describe('admin authorization context', () => {
       data: { session: null },
       error: null,
     });
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
   });
 
   it('queries the authenticated user id and requires active permission fields', async () => {
@@ -209,5 +215,46 @@ describe('admin authorization context', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Sign in' }));
 
     await waitFor(() => expect(document.body.dataset.signInResult).toBe('ok:none:unauthorized'));
+  });
+
+  it('grants local Supabase users admin access without creating permission records', async () => {
+    vi.stubEnv('MODE', 'development');
+    vi.stubEnv('DEV', true);
+    const accessToken = `header.${btoa(JSON.stringify({
+      iss: 'http://127.0.0.1:54321/auth/v1',
+    })).replace(/=/g, '')}.signature`;
+    mocks.getSession.mockResolvedValue({
+      data: {
+        session: {
+          user: authenticatedUser,
+          access_token: accessToken,
+        },
+      },
+      error: null,
+    });
+    renderProvider();
+
+    await waitFor(() => expect(screen.getByTestId('role')).toHaveTextContent('admin'));
+    expect(mocks.from).not.toHaveBeenCalled();
+  });
+
+  it('grants local-authenticated users admin access in the isolated test mode', async () => {
+    vi.stubEnv('MODE', 'test');
+    const accessToken = `header.${btoa(JSON.stringify({
+      iss: 'http://127.0.0.1:54321/auth/v1',
+    })).replace(/=/g, '')}.signature`;
+    mocks.signInWithPassword.mockResolvedValue({
+      data: {
+        user: authenticatedUser,
+        session: { user: authenticatedUser, access_token: accessToken },
+      },
+      error: null,
+    });
+    renderProvider();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Sign in' }));
+
+    await waitFor(() => expect(document.body.dataset.signInResult).toBe('ok:admin:none'));
+    expect(mocks.from).not.toHaveBeenCalled();
   });
 });

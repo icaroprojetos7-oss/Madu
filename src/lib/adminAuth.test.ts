@@ -1,12 +1,29 @@
 import { describe, expect, it } from 'vitest';
 import {
   getAdminLoginErrorMessage,
+  hasDevelopmentAdminOverride,
   hasPanelAccess,
   parseAdminRole,
   resolveAdminPermission,
 } from './adminAuth';
 
 describe('admin authorization', () => {
+  it('only enables automatic admin access for tests or tokens from the local Supabase Auth issuer', () => {
+    const localAccessToken = `header.${btoa(JSON.stringify({
+      iss: 'http://127.0.0.1:54321/auth/v1',
+    })).replace(/=/g, '')}.signature`;
+    const hostedAccessToken = `header.${btoa(JSON.stringify({
+      iss: 'https://project.supabase.co/auth/v1',
+    })).replace(/=/g, '')}.signature`;
+
+    expect(hasDevelopmentAdminOverride(null, { MODE: 'test', DEV: false })).toBe(false);
+    expect(hasDevelopmentAdminOverride(localAccessToken, { MODE: 'development', DEV: true })).toBe(true);
+    expect(hasDevelopmentAdminOverride(localAccessToken, { MODE: 'test', DEV: false })).toBe(true);
+    expect(hasDevelopmentAdminOverride(hostedAccessToken, { MODE: 'development', DEV: true })).toBe(false);
+    expect(hasDevelopmentAdminOverride(localAccessToken, { MODE: 'production', DEV: false })).toBe(false);
+    expect(hasDevelopmentAdminOverride('not-a-jwt', { MODE: 'development', DEV: true })).toBe(false);
+  });
+
   it('recognizes only database-backed administrator roles', () => {
     expect(parseAdminRole('admin')).toBe('admin');
     expect(parseAdminRole('operator')).toBeNull();

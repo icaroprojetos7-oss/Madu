@@ -7,12 +7,14 @@ const mocks = vi.hoisted(() => ({
   listManagedUsers: vi.fn(),
   refreshRole: vi.fn(),
   refreshSession: vi.fn(),
+  developmentAdminOverride: false,
 }));
 
 vi.mock('../../lib/adminUsers', () => mocks);
 vi.mock('../../context/AdminAuthContext', () => ({
   useAdminAuth: () => ({
     user: { id: 'admin-id' },
+    developmentAdminOverride: mocks.developmentAdminOverride,
     refreshRole: mocks.refreshRole,
     refreshSession: mocks.refreshSession,
   }),
@@ -31,6 +33,7 @@ describe('admin user access management', () => {
     vi.clearAllMocks();
     mocks.listManagedUsers.mockResolvedValue([otherAdmin]);
     mocks.revokeUserAccess.mockResolvedValue(undefined);
+    mocks.developmentAdminOverride = false;
   });
 
   afterEach(() => vi.restoreAllMocks());
@@ -71,5 +74,15 @@ describe('admin user access management', () => {
       );
     });
     expect(screen.queryByText('Acesso revogado.')).not.toBeInTheDocument();
+  });
+
+  it('does not offer revocation while local development grants universal admin access', async () => {
+    mocks.developmentAdminOverride = true;
+    render(<UserManagement />);
+
+    expect(await screen.findByText('admin@example.com')).toBeInTheDocument();
+    expect(screen.getByText(/todas as contas autenticadas recebem acesso administrativo temporário/i))
+      .toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Revogar' })).toBeDisabled();
   });
 });

@@ -65,3 +65,9 @@ A gestão de acessos permite a administradores autenticados listar e revogar per
 
 ## Decisão 22
 A autorização do painel usa somente o papel `admin`. A migration `20261030115848_make_existing_panel_users_admin_only.sql` converte os perfis de painel que já existiam como `operator` para `admin`, sem reativar perfis inativos; contas Auth sem perfil de painel não são promovidas. A aplicação permite consultar e revogar acessos, mas não concedê-los. Novas concessões exigem um procedimento administrativo confiável no servidor/banco, nunca `user_metadata` nem autoatribuição pelo usuário.
+
+## Decisão 23
+Firebase Hosting é a única plataforma de hospedagem da aplicação. O `firebase.json` e o projeto padrão existente em `.firebaserc` são a fonte de configuração; o build Vite é publicado em `dist` com rewrite SPA para `index.html`. Configurações de deploy de outras plataformas não fazem parte do projeto. Firebase hospeda os arquivos estáticos, enquanto Supabase continua responsável por dados, autenticação e imagens.
+
+## Decisão 24
+No Supabase local, contas autenticadas podem acessar o painel sem perfil administrativo, inclusive em testes isolados. A exceção exige token com issuer local (`localhost`/`127.0.0.1:54321`); frontend, helpers RLS e Edge Function usam o mesmo limite. Não são criados nem alterados registros em `admin_user_permissions`, e a revogação fica indisponível nesse modo. Tokens de projetos hospedados continuam exigindo o perfil administrativo ativo, sem mudanças nas políticas de produção.

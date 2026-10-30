@@ -46,12 +46,14 @@ O service worker é registrado somente em builds de produção. Ele mantém o ap
 
 O manifest usa `display: standalone`, `display_override: ["standalone"]`, escopo `/` e ícones regulares e maskable. No Android, use a opção **Instalar app** do Chrome para criar uma instalação PWA. Se uma versão anterior tiver sido adicionada como atalho e ainda abrir com a barra do Chrome, remova esse atalho/aplicativo antigo e instale novamente após a atualização do site; “Adicionar à tela inicial” pode criar apenas um atalho em algumas versões do Chrome.
 
-O projeto padrão está vinculado ao Firebase `maduacessorios-b8d44`. Para publicar, instale ou execute o Firebase CLI e autentique-se:
+O projeto padrão está vinculado ao Firebase `maduacessorios-b8d44`. O `firebase.json` publica `dist`, mantém os headers de atualização do manifest/service worker e direciona rotas SPA para `index.html`. Para publicar, instale o Firebase CLI e autentique-se:
 
 ```bash
-npx firebase-tools login
+npm install -g firebase-tools
+firebase login
+firebase use maduacessorios-b8d44
 npm run build
-npx firebase-tools deploy --only hosting
+firebase deploy --only hosting --project maduacessorios-b8d44
 ```
 
 O Firebase Hosting não compila o app nem injeta variáveis de ambiente. Configure `VITE_SUPABASE_URL`, `VITE_SUPABASE_PUBLISHABLE_KEY` (ou `VITE_SUPABASE_ANON_KEY`) e `VITE_WHATSAPP_NUMBER` no ambiente de build antes de executar `npm run build` (por exemplo, em `.env.production.local`, que não deve ser commitado). Essas variáveis públicas são incorporadas ao frontend durante o build; nunca use `service_role`. Use `--project OUTRO_PROJECT_ID` para substituir o projeto padrão em um deploy específico. O service worker e o manifest também são publicados como arquivos estáticos do Firebase Hosting.
@@ -75,7 +77,7 @@ VITE_SUPABASE_PUBLISHABLE_KEY=sua-chave-publica
 VITE_WHATSAPP_NUMBER=+5511999999999
 ```
 
-Nunca configure `service_role` em qualquer `VITE_*` nem exponha segredos no frontend. O Preview deve apontar para um projeto separado sempre que possível para evitar alteração indevida dos dados de produção.
+Nunca configure `service_role` em qualquer `VITE_*` nem exponha segredos no frontend. Para testar uma versão sem alterar a produção, use canais de preview do Firebase Hosting e aponte o build para um projeto Supabase de testes, sempre que possível.
 
 ### Autenticação do Supabase (Site URL e redirects)
 

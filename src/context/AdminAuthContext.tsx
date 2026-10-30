@@ -4,6 +4,7 @@ import type { User } from '@supabase/supabase-js';
 import { supabase } from '../lib/supabase';
 import {
   getAdminLoginErrorMessage,
+  hasDevelopmentAdminOverride,
   resolveAdminPermission,
   type AdminLoginError,
   type AdminPermissionIssue,
@@ -18,6 +19,7 @@ type AdminAuthContextValue = {
   roleLoading: boolean;
   roleError: string;
   sessionNotice: string;
+  developmentAdminOverride: boolean;
   configured: boolean;
   refreshRole: () => Promise<void>;
   refreshSession: () => Promise<string | null>;
@@ -40,6 +42,7 @@ type PermissionCheckResult = {
 
 export function AdminAuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
+  const [accessToken, setAccessToken] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [role, setRole] = useState<AdminRole | null>(null);
   const [permissionIssue, setPermissionIssue] = useState<AdminPermissionIssue>(null);
@@ -119,14 +122,18 @@ export function AdminAuthProvider({ children }: { children: ReactNode }) {
       roleRequest.current = null;
       if (active) {
         setUser(session?.user ?? null);
-        setRole(null);
+        setAccessToken(session?.access_token ?? null);
+        const developmentAdmin = Boolean(
+          session?.user && hasDevelopmentAdminOverride(session.access_token),
+        );
+        setRole(developmentAdmin ? 'admin' : null);
         setPermissionIssue(null);
         setRoleError('');
         if (session) setSessionNotice('');
-        setRoleLoading(Boolean(session?.user));
+        setRoleLoading(Boolean(session?.user) && !developmentAdmin);
         setLoading(false);
       }
-      if (session?.user) {
+      if (session?.user && !hasDevelopmentAdminOverride(session.access_token)) {
         window.setTimeout(() => {
           if (active) void refreshRoleForUser(session.user);
         }, 0);
@@ -141,7 +148,13 @@ export function AdminAuthProvider({ children }: { children: ReactNode }) {
           setSessionNotice(getAdminLoginErrorMessage(error));
         }
         setUser(data.session?.user ?? null);
-        setRoleLoading(Boolean(data.session?.user));
+        setAccessToken(data.session?.access_token ?? null);
+        const developmentAdmin = Boolean(
+          data.session?.user && hasDevelopmentAdminOverride(data.session.access_token),
+        );
+        setRole(developmentAdmin ? 'admin' : null);
+        setPermissionIssue(null);
+        setRoleLoading(Boolean(data.session?.user) && !developmentAdmin);
         setLoading(false);
       })
       .catch((error: unknown) => {
@@ -149,6 +162,9 @@ export function AdminAuthProvider({ children }: { children: ReactNode }) {
         console.error('Não foi possível restaurar a sessão administrativa.', error);
         setSessionNotice(getAdminLoginErrorMessage(error));
         setUser(null);
+        setAccessToken(null);
+        setRole(null);
+        setPermissionIssue(null);
         setRoleLoading(false);
         setLoading(false);
       });
@@ -169,8 +185,16 @@ export function AdminAuthProvider({ children }: { children: ReactNode }) {
       return;
     }
 
+    if (hasDevelopmentAdminOverride(accessToken)) {
+      setRole('admin');
+      setPermissionIssue(null);
+      setRoleError('');
+      setRoleLoading(false);
+      return;
+    }
+
     await refreshRoleForUser(user);
-  }, [refreshRoleForUser, user]);
+  }, [accessToken, refreshRoleForUser, user]);
 
   useEffect(() => {
     void refreshRole();
@@ -184,6 +208,7 @@ export function AdminAuthProvider({ children }: { children: ReactNode }) {
     roleLoading,
     roleError,
     sessionNotice,
+    developmentAdminOverride: hasDevelopmentAdminOverride(accessToken),
     configured: Boolean(supabase),
     refreshRole,
     refreshSession: async () => {
@@ -223,9 +248,15 @@ export function AdminAuthProvider({ children }: { children: ReactNode }) {
 
       setSessionNotice('');
       setUser(data.session.user);
-      setRole(null);
+      setAccessToken(data.session.access_token);
+      const developmentAdmin = hasDevelopmentAdminOverride(data.session.access_token);
+      setRole(developmentAdmin ? 'admin' : null);
       setPermissionIssue(null);
       setRoleError('');
+      if (developmentAdmin) {
+        setRoleLoading(false);
+        return { error: null, role: 'admin', permissionIssue: null };
+      }
       const authorization = await refreshRoleForUser(data.session.user, true);
       return {
         error: authorization.error
@@ -255,6 +286,7 @@ export function AdminAuthProvider({ children }: { children: ReactNode }) {
     roleLoading,
     roleError,
     sessionNotice,
+    accessToken,
     refreshRole,
     refreshRoleForUser,
   ]);

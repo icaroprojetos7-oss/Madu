@@ -2,16 +2,8 @@ import { useEffect, useState } from 'react';
 import {
   ChevronLeft,
   ChevronRight,
-  CircleDollarSign,
-  ClipboardList,
-  FolderKanban,
-  LayoutDashboard,
   LogOut,
-  Package,
-  Settings,
   ShieldCheck,
-  Users,
-  Warehouse,
   X,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
@@ -48,21 +40,8 @@ type MaduSidebarProps = {
 
 const navigationGroups: NavigationGroup[] = [
   {
-    title: 'PRINCIPAL',
-    items: [{ id: 'dashboard', label: 'Visão geral', icon: LayoutDashboard }],
-  },
-  {
     title: 'GESTÃO',
-    items: [
-      { id: 'produtos', label: 'Produtos', icon: Package },
-      { id: 'categorias', label: 'Categorias', icon: FolderKanban },
-      { id: 'pedidos', label: 'Pedidos', icon: ClipboardList },
-      { id: 'clientes', label: 'Clientes', icon: Users },
-      { id: 'estoque', label: 'Estoque', icon: Warehouse },
-      { id: 'financeiro', label: 'Financeiro', icon: CircleDollarSign },
-      { id: 'configuracoes', label: 'Configurações', icon: Settings },
-      { id: 'usuarios', label: 'Usuários e permissões', icon: ShieldCheck },
-    ],
+    items: [{ id: 'usuarios', label: 'Usuários e permissões', icon: ShieldCheck }],
   },
 ];
 
