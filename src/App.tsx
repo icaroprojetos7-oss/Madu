@@ -1,0 +1,1346 @@
+import { Link, Navigate, NavLink, Route, Routes, useLocation, useNavigate, useParams } from 'react-router-dom';
+import { ArrowRight, Heart, Menu, MessageCircleMore, Minus, Pencil, Plus, Search, Settings, ShoppingBag, Sparkles, Star, Trash2, Truck } from 'lucide-react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import type { FormEvent } from 'react';
+import { products, categories } from './data/mockProducts';
+import { buildWhatsAppMessage, buildWhatsAppUrl, formatCurrency, getCartSummary } from './lib/commerce';
+import {
+  getProductsFromSupabase,
+  getSupabaseStatus,
+  deleteProductFromSupabase,
+  saveProductToSupabase,
+  updateProductInSupabase,
+  uploadProductImage,
+} from './lib/supabase';
+import {
+  createProductFromForm,
+  emptyProductForm,
+  type ProductFormErrors,
+  type ProductFormField,
+  type ProductFormValues,
+  validateProductImageFile,
+  validateProductForm,
+} from './lib/products';
+import { useCart } from './context/CartContext';
+import { MaduSidebar } from './components/Navigation/MaduSidebar';
+import type { AdminPageId } from './components/Navigation/MaduSidebar';
+import { AdminLoginPage } from './pages/AdminLoginPage';
+import { useAdminAuth } from './context/AdminAuthContext';
+import { AdminRouteGuard } from './components/Navigation/AdminRouteGuard';
+import { ProductImageField } from './components/Admin/ProductImageField';
+import maduLogo from './assets/madu-logo-transparent.png';
+import { useStoreSettings } from './context/StoreSettingsContext';
+import { UserManagement } from './components/Admin/UserManagement';
+import { normalizeWhatsAppNumber } from './lib/storeSettings';
+
+type ProductView = (typeof products)[number];
+
+function useStorefrontProducts(includeInactive = false) {
+  const [catalog, setCatalog] = useState<ProductView[]>(
+    () => (getSupabaseStatus().enabled || !import.meta.env.DEV
+      ? []
+      : products.filter((product) => product.is_active !== false)),
+  );
+  const [syncStatus, setSyncStatus] = useState('Carregando catálogo...');
+  const [isLoading, setIsLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
+
+  const refreshCatalog = useCallback(async () => {
+    setIsLoading(true);
+    setLoadError(false);
+    try {
+      const remoteProducts = await getProductsFromSupabase(includeInactive);
+      setCatalog(remoteProducts);
+      setSyncStatus(getSupabaseStatus().message);
+      setIsLoading(false);
+      return remoteProducts;
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : 'Erro inesperado ao carregar o catálogo.';
+      setSyncStatus(reason);
+      setLoadError(true);
+      setIsLoading(false);
+      return null;
+    }
+  }, [includeInactive]);
+
+  const addConfirmedProduct = useCallback((product: ProductView) => {
+    setCatalog((current) => [product, ...current.filter((item) => item.id !== product.id)]);
+  }, []);
+  const removeConfirmedProduct = useCallback((productId: string) => {
+    setCatalog((current) => current.filter((item) => item.id !== productId));
+  }, []);
+
+  useEffect(() => {
+    void refreshCatalog();
+  }, [refreshCatalog]);
+
+  return {
+    catalog,
+    syncStatus,
+    isLoading,
+    loadError,
+    refreshCatalog,
+    addConfirmedProduct,
+    removeConfirmedProduct,
+  };
+}
+
+function App() {
+  return (
+    <div className="min-h-screen bg-[#f9eff4] text-stone-800">
+      <Routes>
+        <Route path="/" element={<HomePage />} />
+        <Route path="/produtos" element={<CatalogPage />} />
+        <Route path="/produto/:slug" element={<ProductPage />} />
+        <Route path="/carrinho" element={<CartPage />} />
+        <Route path="/admin/login" element={<AdminLoginPage />} />
+        <Route path="/admin" element={<AdminRouteGuard><AdminPage /></AdminRouteGuard>} />
+        <Route path="/admin/produtos" element={<AdminRouteGuard><AdminPage /></AdminRouteGuard>} />
+        <Route path="/admin/:module" element={<AdminRouteGuard><AdminModulePage /></AdminRouteGuard>} />
+        <Route path="/admin/*" element={<AdminRouteGuard><AdminModulePage /></AdminRouteGuard>} />
+        <Route path="*" element={<HomePage />} />
+      </Routes>
+    </div>
+  );
+}
+
+function HomePage() {
+  const { catalog, syncStatus } = useStorefrontProducts();
+  const { whatsappNumber, loading: settingsLoading } = useStoreSettings();
+  const featured = catalog.filter((product) => product.featured);
+
+  return (
+    <>
+      <Header />
+      <main className="mx-auto max-w-6xl px-4 pb-20 pt-4 sm:px-6 lg:px-8">
+        <div className="mb-4 rounded-full border border-[#f1dfe9] bg-white px-3 py-2 text-center text-xs text-[#5d4454] shadow-sm">
+          {syncStatus}
+        </div>
+        <section className="overflow-hidden rounded-[2rem] bg-gradient-to-r from-[#f8dde8] via-[#f5e2ef] to-[#f5d7f0] shadow-soft">
+          <div className="grid gap-6 p-5 md:grid-cols-[1.1fr_0.9fr] md:p-10">
+            <div className="flex flex-col justify-center">
+              <span className="mb-3 inline-flex w-fit items-center gap-2 rounded-full bg-white/70 px-3 py-1 text-xs font-medium text-[#8B5E7C]">
+                <Sparkles size={14} />
+                Semijoias premium
+              </span>
+              <h1 className="max-w-md text-3xl font-semibold leading-tight text-[#2d1d25] sm:text-5xl">
+                Peças delicadas para acompanhar seus melhores momentos.
+              </h1>
+              <p className="mt-4 max-w-xl text-sm text-[#5d4454] sm:text-base">
+                Coleções curadas para valorizar o brilho do cotidiano com sofisticação, delicadeza e identidade feminina.
+              </p>
+              <div className="mt-6 flex flex-col gap-3 sm:flex-row">
+                <Link to="/produtos" className="inline-flex items-center justify-center rounded-full bg-[#8B5E7C] px-5 py-3 text-sm font-medium text-white shadow-md transition hover:opacity-90">
+                  Ver coleção
+                  <ArrowRight className="ml-2" size={16} />
+                </Link>
+                {whatsappNumber ? (
+                  <a href={buildWhatsAppUrl(whatsappNumber, 'Olá! Vim pelo site da MADU.')} target="_blank" rel="noreferrer" className="inline-flex items-center justify-center rounded-full border border-[#8B5E7C] bg-white/70 px-5 py-3 text-sm font-medium text-[#8B5E7C]">
+                    Falar no WhatsApp
+                  </a>
+                ) : (
+                  <span className="inline-flex items-center justify-center rounded-full border border-[#8B5E7C]/40 bg-white/50 px-5 py-3 text-sm text-[#76506a]">
+                    {settingsLoading ? 'Carregando WhatsApp...' : 'WhatsApp indisponível'}
+                  </span>
+                )}
+              </div>
+            </div>
+            <div className="relative flex items-center justify-center">
+              <div className="absolute inset-0 rounded-[2rem] bg-white/15 blur-3xl" />
+              <img
+                src="https://images.unsplash.com/photo-1617038220319-276d3cfab638?auto=format&fit=crop&w=900&q=80"
+                alt="Semijoias Madu"
+                className="relative h-[420px] w-full rounded-[2rem] object-cover shadow-soft"
+              />
+            </div>
+          </div>
+        </section>
+
+        <section className="mt-10">
+          <div className="mb-4 flex items-center justify-between">
+            <h2 className="text-xl font-semibold text-[#2d1d25]">Categorias</h2>
+            <Link to="/produtos" className="text-sm font-medium text-[#8B5E7C]">Ver tudo</Link>
+          </div>
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
+            {categories.slice(0, 6).map((category) => (
+              <div key={category} className="rounded-2xl border border-[#f1dfe9] bg-white p-3 text-center shadow-sm">
+                <p className="text-sm font-medium text-[#3d2b35]">{category}</p>
+              </div>
+            ))}
+          </div>
+        </section>
+
+        <section className="mt-10">
+          <div className="mb-4 flex items-center justify-between">
+            <h2 className="text-xl font-semibold text-[#2d1d25]">Novidades</h2>
+            <Link to="/produtos" className="text-sm font-medium text-[#8B5E7C]">Ver catálogo</Link>
+          </div>
+          <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
+            {featured.map((product) => (
+              <ProductCard key={product.id} product={product} />
+            ))}
+          </div>
+        </section>
+
+        <section className="mt-12 grid gap-4 md:grid-cols-3">
+          {[
+            { icon: <Truck size={20} />, title: 'Entrega', text: 'Atendimento próximo com cuidado na escolha do presente.' },
+            { icon: <MessageCircleMore size={20} />, title: 'WhatsApp', text: 'Finalize o pedido de forma simples e direta.' },
+            { icon: <Heart size={20} />, title: 'Detalhes', text: 'Peças curadas com beleza, leveza e personalidade.' },
+          ].map((item) => (
+            <div key={item.title} className="rounded-3xl border border-[#f1dfe9] bg-white p-5 shadow-sm">
+              <div className="mb-3 inline-flex rounded-full bg-[#f8e9ef] p-3 text-[#8B5E7C]">{item.icon}</div>
+              <h3 className="text-lg font-semibold text-[#2d1d25]">{item.title}</h3>
+              <p className="mt-2 text-sm text-[#5d4454]">{item.text}</p>
+            </div>
+          ))}
+        </section>
+      </main>
+      <Footer />
+    </>
+  );
+}
+
+function CatalogPage() {
+  const { catalog } = useStorefrontProducts();
+  const [search, setSearch] = useState('');
+  const [category, setCategory] = useState('Todas');
+  const [sort, setSort] = useState('news');
+
+  const filteredProducts = useMemo(() => {
+    const byText = catalog.filter((product) => {
+      const term = search.toLowerCase();
+      return (
+        !term ||
+        product.name.toLowerCase().includes(term) ||
+        product.description.toLowerCase().includes(term) ||
+        (product.sku ?? '').toLowerCase().includes(term)
+      );
+    });
+
+    const byCategory = category === 'Todas' ? byText : byText.filter((product) => product.category === category);
+
+    return [...byCategory].sort((a, b) => {
+      if (sort === 'low') return (a.sale_price_cents ?? a.price_cents) - (b.sale_price_cents ?? b.price_cents);
+      if (sort === 'high') return (b.sale_price_cents ?? b.price_cents) - (a.sale_price_cents ?? a.price_cents);
+      return Number(b.featured === true) - Number(a.featured === true);
+    });
+  }, [catalog, search, category, sort]);
+
+  return (
+    <>
+      <Header />
+      <main className="mx-auto max-w-6xl px-4 pb-20 pt-4 sm:px-6 lg:px-8">
+        <div className="mb-6 flex flex-col gap-3 rounded-3xl bg-white p-4 shadow-sm sm:flex-row sm:items-center sm:justify-between">
+          <div className="relative w-full sm:max-w-md">
+            <Search className="pointer-events-none absolute left-3 top-3 text-[#8B5E7C]" size={18} />
+            <input
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+              placeholder="Buscar produto..."
+              className="w-full rounded-full border border-[#efd7e7] bg-[#fffafc] py-3 pl-10 pr-4 text-sm outline-none ring-0 placeholder:text-[#9c7d8d]"
+            />
+          </div>
+          <div className="flex gap-2">
+            <select value={category} onChange={(event) => setCategory(event.target.value)} className="rounded-full border border-[#efd7e7] bg-[#fffafc] px-3 py-2 text-sm text-[#3d2b35] outline-none">
+              <option value="Todas">Todas</option>
+              {categories.map((item) => (
+                <option key={item} value={item}>{item}</option>
+              ))}
+            </select>
+            <select value={sort} onChange={(event) => setSort(event.target.value)} className="rounded-full border border-[#efd7e7] bg-[#fffafc] px-3 py-2 text-sm text-[#3d2b35] outline-none">
+              <option value="news">Novidades</option>
+              <option value="low">Menor preço</option>
+              <option value="high">Maior preço</option>
+            </select>
+          </div>
+        </div>
+
+        <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
+          {filteredProducts.length > 0 ? (
+            filteredProducts.map((product) => <ProductCard key={product.id} product={product} />)
+          ) : (
+            <div className="col-span-full rounded-3xl border border-dashed border-[#d7b0c0] bg-white p-8 text-center text-[#5d4454]">
+              Nenhum produto encontrado para essa busca.
+            </div>
+          )}
+        </div>
+      </main>
+      <Footer />
+    </>
+  );
+}
+
+function ProductPage() {
+  const { catalog } = useStorefrontProducts();
+  const { slug } = useParams();
+  const product = catalog.find((item) => item.slug === slug);
+  const [selectedVariation, setSelectedVariation] = useState('');
+  const [quantity, setQuantity] = useState(1);
+  const { addToCart } = useCart();
+
+  useEffect(() => {
+    setSelectedVariation(product?.variations?.[0] ?? '');
+    setQuantity(1);
+  }, [product?.id]);
+
+  const related = product ? catalog.filter((item) => item.id !== product.id).slice(0, 3) : [];
+
+  if (!product) {
+    return (
+      <>
+        <Header />
+        <main className="mx-auto max-w-6xl px-4 py-16 text-center text-[#5d4454] sm:px-6 lg:px-8">
+          <h1 className="text-2xl font-semibold text-[#2d1d25]">Produto indisponível</h1>
+          <p className="mt-3">Este produto não está no catálogo atual.</p>
+          <Link to="/produtos" className="mt-6 inline-flex min-h-11 items-center rounded-full bg-[#8B5E7C] px-5 text-sm font-medium text-white">
+            Voltar aos produtos
+          </Link>
+        </main>
+        <Footer />
+      </>
+    );
+  }
+
+  return (
+    <>
+      <Header />
+      <main className="mx-auto max-w-6xl px-4 pb-20 pt-4 sm:px-6 lg:px-8">
+        <div className="grid gap-8 rounded-[2rem] bg-white p-4 shadow-sm lg:grid-cols-[1.1fr_0.9fr] lg:p-8">
+          <div>
+            <img src={product.image} alt={product.name} className="h-[500px] w-full rounded-[2rem] object-cover" />
+          </div>
+
+          <div className="flex flex-col justify-center">
+            <p className="text-xs font-semibold uppercase tracking-[0.2em] text-[#8B5E7C]">{product.category}</p>
+            <h1 className="mt-3 text-3xl font-semibold text-[#2d1d25]">{product.name}</h1>
+            <div className="mt-4 flex items-center gap-2 text-[#8B5E7C]">
+              <Star size={16} className="fill-current" />
+              <span className="text-sm">Produto selecionado</span>
+            </div>
+
+            <div className="mt-5 flex items-end gap-3">
+              <span className="text-3xl font-semibold text-[#2d1d25]">{formatCurrency(product.sale_price_cents ?? product.price_cents)}</span>
+              {product.sale_price_cents !== undefined ? <span className="text-base text-[#9c7d8d] line-through">{formatCurrency(product.price_cents)}</span> : null}
+            </div>
+
+            <p className="mt-5 text-sm leading-7 text-[#5d4454]">{product.description}</p>
+
+            {product.variations && product.variations.length > 0 && (
+              <div className="mt-6">
+                <p className="mb-2 text-sm font-medium text-[#3d2b35]">Variação</p>
+                <div className="flex flex-wrap gap-2">
+                  {product.variations.map((variation) => (
+                    <button
+                      key={variation}
+                      type="button"
+                      onClick={() => setSelectedVariation(variation)}
+                      className={`rounded-full border px-4 py-2 text-sm ${selectedVariation === variation ? 'border-[#8B5E7C] bg-[#8B5E7C] text-white' : 'border-[#ecdce3] bg-white text-[#3d2b35]'}`}
+                    >
+                      {variation}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            <div className="mt-6 flex items-center gap-3">
+              <div className="flex items-center overflow-hidden rounded-full border border-[#efd7e7] bg-[#fffafc]">
+                <button type="button" onClick={() => setQuantity((value) => Math.max(1, value - 1))} className="p-3 text-[#8B5E7C]" aria-label="Diminuir quantidade">
+                  <Minus size={16} />
+                </button>
+                <span className="min-w-10 text-center text-sm font-medium text-[#2d1d25]">{quantity}</span>
+                <button type="button" disabled={quantity >= product.stock} onClick={() => setQuantity((value) => Math.min(product.stock, value + 1))} className="p-3 text-[#8B5E7C] disabled:cursor-not-allowed disabled:opacity-40" aria-label="Aumentar quantidade">
+                  <Plus size={16} />
+                </button>
+              </div>
+              <button
+                type="button"
+                disabled={product.stock < 1}
+                onClick={() => addToCart({ id: product.id, name: product.name, image: product.image, unitPrice: product.sale_price_cents ?? product.price_cents, variation: selectedVariation, sku: product.sku, availableStock: product.stock, quantity })}
+                className="flex-1 rounded-full bg-[#8B5E7C] px-4 py-3 text-sm font-medium text-white shadow-md transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {product.stock > 0 ? 'Adicionar ao carrinho' : 'Indisponível'}
+              </button>
+            </div>
+
+            <div className="mt-5 grid gap-2 text-sm text-[#5d4454]">
+              <p>SKU: {product.sku ?? 'Não informado'}</p>
+              <p>Disponibilidade: {product.stock > 0 ? `${product.stock} disponíveis` : 'Indisponível'}</p>
+            </div>
+          </div>
+        </div>
+
+        <section className="mt-12">
+          <h2 className="mb-4 text-xl font-semibold text-[#2d1d25]">Produtos relacionados</h2>
+          <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
+            {related.map((item) => (
+              <ProductCard key={item.id} product={item} />
+            ))}
+          </div>
+        </section>
+      </main>
+      <Footer />
+    </>
+  );
+}
+
+function CartPage() {
+  const { items, updateQuantity, removeItem, refreshFromCatalog, clearCart } = useCart();
+  const { catalog, isLoading: catalogLoading, loadError: catalogError } = useStorefrontProducts();
+  const { whatsappNumber, loading: settingsLoading, error: settingsError } = useStoreSettings();
+  const productsById = useMemo(() => new Map(catalog.map((product) => [product.id, product])), [catalog]);
+  const cartItems = useMemo(() => items.map((item) => {
+    const product = productsById.get(item.id);
+    return product
+      ? {
+          ...item,
+          name: product.name,
+          image: product.image,
+          unitPrice: product.sale_price_cents ?? product.price_cents,
+          sku: product.sku,
+          availableStock: product.stock,
+        }
+      : item;
+  }), [items, productsById]);
+
+  useEffect(() => {
+    if (!catalogLoading && !catalogError) refreshFromCatalog(catalog);
+  }, [catalog, catalogError, catalogLoading, refreshFromCatalog]);
+
+  const summary = getCartSummary(cartItems.map((item) => ({ quantity: item.quantity, unitPrice: item.unitPrice })));
+  const whatsappMessage = buildWhatsAppMessage({
+    items: cartItems.map((item) => ({ id: item.id, quantity: item.quantity, unitPrice: item.unitPrice, name: item.name, variation: item.variation, sku: item.sku })),
+    storeName: 'MADU ACESSÓRIOS',
+    notes: 'Gostaria de confirmar a disponibilidade.',
+  });
+  const unavailableItems = cartItems.filter((item) => {
+    const currentProduct = productsById.get(item.id);
+    return !currentProduct || item.quantity > currentProduct.stock;
+  });
+  const canCheckout = Boolean(
+    items.length > 0 &&
+    whatsappNumber &&
+    !settingsLoading &&
+    !settingsError &&
+    !catalogLoading &&
+    !catalogError &&
+    unavailableItems.length === 0,
+  );
+
+  return (
+    <>
+      <Header />
+      <main className="mx-auto max-w-6xl px-4 pb-20 pt-4 sm:px-6 lg:px-8">
+        <div className="mb-6 flex items-center justify-between">
+          <h1 className="text-2xl font-semibold text-[#2d1d25]">Carrinho</h1>
+          {items.length > 0 && (
+            <button type="button" onClick={clearCart} className="text-sm font-medium text-[#8B5E7C]">
+              Limpar carrinho
+            </button>
+          )}
+        </div>
+
+        {items.length === 0 ? (
+          <div className="rounded-3xl border border-dashed border-[#d7b0c0] bg-white p-10 text-center text-[#5d4454]">
+            Seu carrinho está vazio. <Link to="/produtos" className="font-medium text-[#8B5E7C]">Explore as peças</Link>.
+          </div>
+        ) : (
+          <div className="grid gap-6 lg:grid-cols-[1.2fr_0.8fr]">
+            <div className="space-y-4">
+              {cartItems.map((item) => (
+                <div key={`${item.id}-${item.variation ?? 'base'}`} className="grid gap-4 rounded-[2rem] border border-[#f1dfe9] bg-white p-4 shadow-sm sm:grid-cols-[120px_1fr]">
+                  <img src={item.image} alt={item.name} className="h-28 w-full rounded-2xl object-cover" />
+                  <div className="flex flex-col justify-between gap-3">
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <h2 className="text-lg font-semibold text-[#2d1d25]">{item.name}</h2>
+                        <p className="text-sm text-[#5d4454]">{item.variation ?? 'Sem variação'}</p>
+                      </div>
+                      <button type="button" onClick={() => removeItem(item.id, item.variation)} className="text-sm text-[#8B5E7C]">Remover</button>
+                    </div>
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="flex items-center overflow-hidden rounded-full border border-[#efd7e7] bg-[#fffafc]">
+                        <button type="button" onClick={() => updateQuantity(item.id, item.variation, item.quantity - 1)} className="p-2 text-[#8B5E7C]" aria-label="Diminuir quantidade">
+                          <Minus size={14} />
+                        </button>
+                        <span className="min-w-8 text-center text-sm font-medium text-[#2d1d25]">{item.quantity}</span>
+                        <button type="button" disabled={item.availableStock !== undefined && item.quantity >= item.availableStock} onClick={() => updateQuantity(item.id, item.variation, item.quantity + 1)} className="p-2 text-[#8B5E7C] disabled:cursor-not-allowed disabled:opacity-40" aria-label="Aumentar quantidade">
+                          <Plus size={14} />
+                        </button>
+                      </div>
+                      <p className="text-base font-semibold text-[#2d1d25]">{formatCurrency(item.unitPrice * item.quantity)}</p>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <aside className="rounded-[2rem] border border-[#f1dfe9] bg-white p-5 shadow-sm">
+              <h2 className="text-xl font-semibold text-[#2d1d25]">Resumo do pedido</h2>
+              <div className="mt-5 space-y-3 text-sm text-[#5d4454]">
+                <div className="flex justify-between"><span>Itens</span><span>{summary.totalUnits}</span></div>
+                <div className="flex justify-between"><span>Subtotal</span><span>{formatCurrency(summary.subtotal)}</span></div>
+                <div className="flex justify-between"><span>Frete</span><span>a combinar</span></div>
+              </div>
+              <div className="my-5 h-px bg-[#f1dfe9]" />
+              <div className="flex items-center justify-between text-lg font-semibold text-[#2d1d25]">
+                <span>Total</span>
+                <span>{formatCurrency(summary.subtotal)}</span>
+              </div>
+              {unavailableItems.length > 0 && (
+              <p role="alert" className="mt-4 rounded-2xl bg-amber-50 p-3 text-sm text-amber-900">
+                Revise os itens indisponíveis ou ajuste a quantidade ao estoque atual antes de continuar.
+              </p>
+              )}
+              {catalogError && <p role="alert" className="mt-4 text-sm text-red-700">{catalogError}</p>}
+              {settingsError && <p role="alert" className="mt-4 text-sm text-red-700">{settingsError}</p>}
+              {!settingsLoading && !settingsError && !whatsappNumber && (
+              <p role="status" className="mt-4 text-sm text-[#76506a]">O WhatsApp comercial ainda não foi configurado.</p>
+              )}
+              {canCheckout ? (
+              <a
+                href={buildWhatsAppUrl(whatsappNumber, whatsappMessage)}
+                target="_blank"
+                rel="noreferrer"
+                className="mt-6 inline-flex w-full items-center justify-center rounded-full bg-[#8B5E7C] px-5 py-3 text-sm font-medium text-white shadow-md"
+              >
+                Finalizar pedido pelo WhatsApp
+              </a>
+              ) : (
+              <button
+                type="button"
+                disabled
+                className="mt-6 inline-flex w-full cursor-not-allowed items-center justify-center rounded-full bg-[#8B5E7C]/50 px-5 py-3 text-sm font-medium text-white"
+              >
+                {catalogLoading || settingsLoading ? 'Verificando dados do pedido...' : 'WhatsApp indisponível'}
+              </button>
+              )}
+            </aside>
+          </div>
+        )}
+      </main>
+      <Footer />
+    </>
+  );
+}
+
+function AdminPage() {
+  const navigate = useNavigate();
+  const location = useLocation();
+  const { signOut, role } = useAdminAuth();
+  const isAdmin = role === 'admin';
+  const {
+    catalog,
+    syncStatus,
+    refreshCatalog,
+    addConfirmedProduct,
+    removeConfirmedProduct,
+  } = useStorefrontProducts(true);
+  const [productForm, setProductForm] = useState<ProductFormValues>(emptyProductForm);
+  const [editingProductId, setEditingProductId] = useState<string | null>(null);
+  const [selectedImageFile, setSelectedImageFile] = useState<File | null>(null);
+  const [uploadedImageUrl, setUploadedImageUrl] = useState<string | null>(null);
+  const [formErrors, setFormErrors] = useState<ProductFormErrors>({});
+  const [isSavingProduct, setIsSavingProduct] = useState(false);
+  const [deletingProductId, setDeletingProductId] = useState<string | null>(null);
+  const [saveMessage, setSaveMessage] = useState('');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [authMessage, setAuthMessage] = useState('');
+
+  const isProductFormDirty =
+    JSON.stringify(productForm) !== JSON.stringify(emptyProductForm) || selectedImageFile !== null;
+
+  function updateProductForm<K extends ProductFormField>(field: K, value: ProductFormValues[K]) {
+    setProductForm((current) => ({ ...current, [field]: value }));
+    setFormErrors((current) => ({ ...current, [field]: undefined }));
+    setSaveMessage('');
+  }
+
+  function resetProductForm() {
+    setProductForm(emptyProductForm);
+    setEditingProductId(null);
+    setSelectedImageFile(null);
+    setUploadedImageUrl(null);
+    setFormErrors({});
+    setSaveMessage('');
+  }
+
+  function handleImageFileChange(file: File) {
+    const error = validateProductImageFile(file);
+    if (error) {
+      setFormErrors((current) => ({ ...current, image: error }));
+      setSaveMessage('');
+      return;
+    }
+
+    setSelectedImageFile(file);
+    setUploadedImageUrl(null);
+    setFormErrors((current) => ({ ...current, image: undefined }));
+    setSaveMessage('');
+  }
+
+  function handleEditProduct(product: ProductView) {
+    if (!confirmDiscardProductForm()) return;
+
+    setEditingProductId(product.id);
+    setSelectedImageFile(null);
+    setUploadedImageUrl(null);
+    setFormErrors({});
+    setSaveMessage('');
+    setProductForm({
+      name: product.name,
+      category: product.category,
+      sku: product.sku ?? '',
+      description: product.description,
+      price: (product.price_cents / 100).toFixed(2).replace('.', ','),
+      salePrice: product.sale_price_cents === undefined
+        ? ''
+        : (product.sale_price_cents / 100).toFixed(2).replace('.', ','),
+      stock: String(product.stock),
+      image: product.image,
+      variations: product.variations?.join(', ') ?? '',
+      featured: product.featured ?? false,
+      isActive: product.is_active !== false,
+    });
+    document.getElementById('cadastro-produto')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+
+  async function handleDeleteProduct(product: ProductView) {
+    if (!isAdmin || isSavingProduct || deletingProductId) return;
+    if (!window.confirm(`Remover o produto "${product.name}" do catálogo? Esta ação não pode ser desfeita.`)) {
+      return;
+    }
+
+    setDeletingProductId(product.id);
+    setSaveMessage('');
+    try {
+      const result = await deleteProductFromSupabase(product.id);
+      if (!result.ok) {
+        setSaveMessage(`Não foi possível remover o produto: ${result.reason}`);
+        return;
+      }
+
+      removeConfirmedProduct(product.id);
+      if (editingProductId === product.id) resetProductForm();
+      setSaveMessage(`Produto "${product.name}" removido do catálogo.`);
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : 'Erro inesperado ao remover o produto.';
+      setSaveMessage(`Não foi possível remover o produto: ${reason}`);
+    } finally {
+      setDeletingProductId(null);
+    }
+  }
+
+  function confirmDiscardProductForm() {
+    if (isSavingProduct) {
+      setSaveMessage('Aguarde a conclusão do salvamento antes de sair.');
+      return false;
+    }
+    if (!isProductFormDirty) return true;
+    if (!window.confirm('Há alterações não salvas. Deseja descartá-las?')) return false;
+    resetProductForm();
+    return true;
+  }
+
+  useEffect(() => {
+    if (!isProductFormDirty) return;
+
+    const warnBeforeUnload = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      event.returnValue = '';
+    };
+
+    window.addEventListener('beforeunload', warnBeforeUnload);
+    return () => window.removeEventListener('beforeunload', warnBeforeUnload);
+  }, [isProductFormDirty]);
+
+  async function handleSaveProduct(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (deletingProductId) return;
+
+    const errors = validateProductForm(productForm, selectedImageFile !== null);
+    setFormErrors(errors);
+    if (Object.keys(errors).length > 0) {
+      setSaveMessage('Revise os campos destacados antes de salvar.');
+      return;
+    }
+
+    const product = createProductFromForm(
+      productForm,
+      editingProductId ?? undefined,
+      selectedImageFile !== null,
+    );
+    if (!product) {
+      setSaveMessage('Não foi possível preparar os dados do produto. Revise o formulário.');
+      return;
+    }
+
+    setIsSavingProduct(true);
+    setSaveMessage('');
+    const wasEditing = Boolean(editingProductId);
+
+    try {
+      let productToSave = product;
+      if (selectedImageFile) {
+        let publicUrl = uploadedImageUrl;
+        if (!publicUrl) {
+          const uploadResult = await uploadProductImage(selectedImageFile, product.id);
+          if (!uploadResult.ok) {
+            setSaveMessage(`Não foi possível salvar o produto: ${uploadResult.reason}`);
+            return;
+          }
+          publicUrl = uploadResult.publicUrl;
+          setUploadedImageUrl(publicUrl);
+        }
+        productToSave = { ...product, image: publicUrl };
+      }
+
+      const result = editingProductId
+        ? await updateProductInSupabase(productToSave)
+        : await saveProductToSupabase(productToSave);
+      if (!result.ok) {
+        setSaveMessage(`Não foi possível salvar o produto: ${result.reason}`);
+        return;
+      }
+
+      addConfirmedProduct(result.product);
+      const refreshedCatalog = await refreshCatalog();
+      if (refreshedCatalog && !refreshedCatalog.some((item) => item.id === result.product.id)) {
+        addConfirmedProduct(result.product);
+      }
+
+      resetProductForm();
+      setSaveMessage(
+        refreshedCatalog
+          ? `Produto ${wasEditing ? 'atualizado' : 'salvo'} e catálogo atualizado.`
+          : `Produto ${wasEditing ? 'atualizado' : 'salvo'} no Supabase. Não foi possível atualizar a lista agora; tente recarregá-la.`,
+      );
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : 'Erro inesperado ao salvar o produto.';
+      setSaveMessage(`Não foi possível salvar o produto: ${reason}`);
+    } finally {
+      setIsSavingProduct(false);
+    }
+  }
+
+  const stats = [
+    { label: 'Produtos', value: String(catalog.length), tone: 'pink' },
+    { label: 'Categorias', value: String(new Set(catalog.map((product) => product.category)).size), tone: 'purple' },
+    { label: 'Unidades em estoque', value: String(catalog.reduce((sum, product) => sum + product.stock, 0)), tone: 'lavender' },
+    { label: 'Estoque baixo', value: String(catalog.filter((product) => product.stock > 0 && product.stock <= 3).length), tone: 'rose' },
+  ];
+
+  const categorySummary = [...new Set(catalog.map((product) => product.category))]
+    .map((category) => ({
+      name: category,
+      count: catalog.filter((product) => product.category === category).length,
+    }))
+    .sort((a, b) => b.count - a.count)
+    .slice(0, 5);
+  const largestCategoryCount = Math.max(1, ...categorySummary.map((category) => category.count));
+
+  const visibleCatalog = catalog.filter((product) => {
+    const term = searchQuery.trim().toLowerCase();
+    if (!term) return true;
+    return product.name.toLowerCase().includes(term) || product.category.toLowerCase().includes(term);
+  });
+  const activeAdminPage: AdminPageId = location.pathname === '/admin/produtos' ? 'produtos' : 'dashboard';
+
+  if (role === 'operator' && location.pathname === '/admin') {
+    return <Navigate to="/admin/produtos" replace />;
+  }
+
+  async function handleAdminLogout() {
+    if (!confirmDiscardProductForm()) return;
+    const error = await signOut();
+    if (error) {
+      setAuthMessage(`Não foi possível encerrar a sessão: ${error}`);
+      return;
+    }
+    navigate('/admin/login', { replace: true });
+  }
+
+  return (
+    <div className="min-h-screen bg-[#f9eff4] text-[#2d1d25]">
+      <div className="flex min-h-screen">
+        <MaduSidebar
+          activePage={activeAdminPage}
+          userRole={role ?? 'operator'}
+          mobileOpen={mobileMenuOpen}
+          onLogout={() => void handleAdminLogout()}
+          onClose={() => setMobileMenuOpen(false)}
+          onNavigate={(page) => {
+            if (!confirmDiscardProductForm()) return;
+            navigate(adminPaths[page]);
+          }}
+        />
+        <main className="min-w-0 flex-1 bg-[#fffafc] p-4 sm:p-7 lg:p-9">
+            <header className="mb-6 flex flex-col gap-4 border-b border-[#f1dfe9] pb-4 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <button
+                  type="button"
+                  aria-label="Abrir menu"
+                  onClick={() => setMobileMenuOpen(true)}
+                  className="mb-4 rounded-xl border border-[#efd7e7] bg-white p-2 text-[#8B5E7C] md:hidden"
+                >
+                  <Menu size={18} />
+                </button>
+                <p className="text-xs uppercase tracking-[0.24em] text-[#8B5E7C]">{isAdmin ? 'Dashboard' : 'Catálogo'}</p>
+                <h2 className="mt-2 text-2xl font-semibold">{isAdmin ? 'Painel da loja' : 'Produtos'}</h2>
+              </div>
+
+              <div className="flex items-center gap-3">
+                <div className="relative w-full lg:w-72">
+                  <Search className="pointer-events-none absolute left-3 top-3 text-[#8B5E7C]" size={16} />
+                  <input
+                    type="text"
+                    value={searchQuery}
+                    onChange={(event) => setSearchQuery(event.target.value)}
+                    placeholder="Buscar produto"
+                    className="w-full rounded-full border border-[#efd7e7] bg-white py-2.5 pl-9 pr-3 text-sm text-[#2d1d25] outline-none"
+                  />
+                </div>
+                <Link
+                  to="/"
+                  onClick={(event) => {
+                    if (!confirmDiscardProductForm()) event.preventDefault();
+                  }}
+                  className="rounded-full bg-[#8B5E7C] px-4 py-2.5 text-center text-sm font-medium text-white shadow-sm"
+                >
+                  Ver loja
+                </Link>
+              </div>
+            </header>
+
+            <div className="mb-6 rounded-2xl border border-[#f1dfe9] bg-[#fef3f8] px-4 py-3 text-xs text-[#5d4454]">
+              {syncStatus}
+            </div>
+            {authMessage && <p role="alert" className="mb-5 rounded-2xl bg-rose-50 p-3 text-sm text-rose-900">{authMessage}</p>}
+
+            {isAdmin && <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+              {stats.map((stat) => (
+                <div key={stat.label} className="rounded-[1.5rem] border border-[#f1dfe9] bg-white p-4 shadow-sm">
+                  <div className="mb-3 flex items-center justify-between">
+                    <span className="text-xs uppercase tracking-[0.18em] text-[#8B5E7C]">{stat.label}</span>
+                    <span className={`h-2.5 w-2.5 rounded-full ${stat.tone === 'pink' ? 'bg-[#f7cdd9]' : stat.tone === 'purple' ? 'bg-[#d9c7f2]' : stat.tone === 'lavender' ? 'bg-[#ead9f5]' : 'bg-[#f5d1db]'}`} />
+                  </div>
+                  <p className="text-2xl font-semibold text-[#2d1d25]">{stat.value}</p>
+                </div>
+              ))}
+            </section>}
+
+            {isAdmin && <section className="mt-6 grid gap-6 xl:grid-cols-[1.45fr_0.85fr]">
+              <div className="rounded-[1.75rem] border border-[#f1dfe9] bg-white p-5 shadow-sm sm:p-6">
+                <div className="mb-5 flex items-start justify-between gap-3">
+                  <div>
+                    <p className="text-xs uppercase tracking-[0.2em] text-[#8B5E7C]">Catálogo</p>
+                    <h3 className="mt-2 text-xl font-semibold text-[#2d1d25]">Produtos por categoria</h3>
+                  </div>
+                  <span className="rounded-full bg-[#f8e9ef] px-2.5 py-1 text-xs font-medium text-[#8B5E7C]">
+                    {catalog.length} produtos
+                  </span>
+                </div>
+
+                {categorySummary.length > 0 ? (
+                  <div className="space-y-4">
+                    {categorySummary.map((category) => (
+                      <div key={category.name}>
+                        <div className="mb-1.5 flex justify-between text-sm">
+                          <span className="text-[#5d4454]">{category.name}</span>
+                          <span className="font-medium text-[#2d1d25]">{category.count}</span>
+                        </div>
+                        <div className="h-2.5 overflow-hidden rounded-full bg-[#f8e9ef]">
+                          <div
+                            className="h-full rounded-full bg-gradient-to-r from-[#8B5E7C] to-[#d6a9c5]"
+                            style={{ width: `${(category.count / largestCategoryCount) * 100}%` }}
+                          />
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="rounded-2xl bg-[#fffafc] p-4 text-sm text-[#5d4454]">Nenhum produto cadastrado.</p>
+                )}
+              </div>
+
+              <div className="rounded-[1.75rem] border border-[#f1dfe9] bg-white p-5 shadow-sm sm:p-6">
+                <h3 className="text-lg font-semibold text-[#2d1d25]">Acesso rápido</h3>
+                <p className="mt-1 text-sm text-[#5d4454]">Atalhos para gerenciar o catálogo.</p>
+                <div className="mt-4 space-y-3">
+                  <a href="#produtos" className="flex items-center justify-between rounded-2xl border border-[#efd7e7] bg-[#fffafc] px-4 py-3 text-sm text-[#2d1d25]">
+                    <span>Gerenciar catálogo</span><ArrowRight size={16} />
+                  </a>
+                  <a href="#cadastro-produto" className="flex items-center justify-between rounded-2xl border border-[#efd7e7] bg-[#fffafc] px-4 py-3 text-sm text-[#2d1d25]">
+                    <span>Cadastrar produto</span><ArrowRight size={16} />
+                  </a>
+                </div>
+              </div>
+            </section>}
+
+            <section id="produtos" className="mt-6 grid gap-6 xl:grid-cols-[1.2fr_0.8fr]">
+              <div className="rounded-[1.75rem] border border-[#f1dfe9] bg-white p-5 shadow-sm">
+                <div className="mb-4 flex items-center justify-between">
+                  <h3 className="text-lg font-semibold text-[#2d1d25]">Produtos do catálogo</h3>
+                </div>
+
+                <div className="overflow-x-auto rounded-2xl border border-[#f1dfe9]">
+                  <table className="min-w-full text-left text-sm">
+                    <thead className="bg-[#fff5f9] text-[#5d4454]">
+                      <tr>
+                        <th className="px-4 py-3 font-medium">Produto</th>
+                        <th className="px-4 py-3 font-medium">Categoria</th>
+                        <th className="px-4 py-3 font-medium">Preço</th>
+                        <th className="px-4 py-3 font-medium">Estoque</th>
+                        <th className="px-4 py-3 font-medium">Vitrine</th>
+                        <th className="px-4 py-3 font-medium">Ações</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {visibleCatalog.map((product) => (
+                        <tr key={product.id} className="border-t border-[#f1dfe9]">
+                          <td className="px-4 py-3">
+                            <div className="flex items-center gap-3">
+                              <img src={product.image} alt={product.name} className="h-10 w-10 rounded-xl object-cover" />
+                              <span className="font-medium text-[#2d1d25]">{product.name}</span>
+                            </div>
+                          </td>
+                          <td className="px-4 py-3 text-[#5d4454]">{product.category}</td>
+                          <td className="px-4 py-3 font-medium text-[#2d1d25]">{formatCurrency(product.sale_price_cents ?? product.price_cents)}</td>
+                          <td className="px-4 py-3 text-[#5d4454]">{product.stock}</td>
+                          <td className="px-4 py-3 text-[#5d4454]">{product.is_active === false ? 'Oculto' : 'Ativo'}</td>
+                          <td className="px-4 py-3">
+                            <button
+                              type="button"
+                              disabled={isSavingProduct || Boolean(deletingProductId)}
+                              onClick={() => handleEditProduct(product)}
+                              className="inline-flex min-h-10 items-center gap-2 rounded-full border border-[#efd7e7] px-3 text-xs font-medium text-[#76506a] hover:bg-[#fff5f9] disabled:opacity-60"
+                            >
+                              <Pencil size={14} />
+                              Editar
+                            </button>
+                            {isAdmin && (
+                              <button
+                                type="button"
+                                disabled={isSavingProduct || Boolean(deletingProductId)}
+                                onClick={() => void handleDeleteProduct(product)}
+                                aria-label={`Remover ${product.name}`}
+                                className="ml-2 inline-flex min-h-10 items-center gap-2 rounded-full border border-rose-200 px-3 text-xs font-medium text-rose-700 hover:bg-rose-50 disabled:cursor-not-allowed disabled:opacity-60"
+                              >
+                                <Trash2 size={14} />
+                                {deletingProductId === product.id ? 'Removendo...' : 'Remover'}
+                              </button>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                      {visibleCatalog.length === 0 && (
+                        <tr>
+                          <td colSpan={6} className="px-4 py-8 text-center text-sm text-[#5d4454]">
+                            Nenhum produto corresponde à busca.
+                          </td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              <div className="space-y-6">
+                <div id="cadastro-produto" className="rounded-[1.75rem] border border-[#f1dfe9] bg-white p-5 shadow-sm">
+                  <h3 className="text-lg font-semibold text-[#2d1d25]">
+                    {editingProductId ? 'Editar produto' : 'Cadastrar produto'}
+                  </h3>
+                  <form onSubmit={handleSaveProduct} noValidate className="mt-4">
+                    <fieldset disabled={isSavingProduct || Boolean(deletingProductId)} className="space-y-3">
+                    <label className="block text-sm text-[#5d4454]">
+                      Nome do produto *
+                      <input required value={productForm.name} onChange={(event) => updateProductForm('name', event.target.value)} aria-invalid={Boolean(formErrors.name)} className="mt-1 w-full rounded-2xl border border-[#efd7e7] bg-[#fffafc] px-3 py-2 text-[#2d1d25] outline-none" />
+                      {formErrors.name && <span className="mt-1 block text-xs text-red-700">{formErrors.name}</span>}
+                    </label>
+                    <label className="block text-sm text-[#5d4454]">
+                      Categoria *
+                      <select required value={productForm.category} onChange={(event) => updateProductForm('category', event.target.value)} aria-invalid={Boolean(formErrors.category)} className="mt-1 w-full rounded-2xl border border-[#efd7e7] bg-[#fffafc] px-3 py-2 text-[#2d1d25] outline-none">
+                        <option value="">Selecione uma categoria</option>
+                        {categories.map((category) => <option key={category} value={category}>{category}</option>)}
+                      </select>
+                      {formErrors.category && <span className="mt-1 block text-xs text-red-700">{formErrors.category}</span>}
+                    </label>
+                    <label className="block text-sm text-[#5d4454]">
+                      SKU
+                      <input value={productForm.sku} onChange={(event) => updateProductForm('sku', event.target.value)} aria-invalid={Boolean(formErrors.sku)} className="mt-1 w-full rounded-2xl border border-[#efd7e7] bg-[#fffafc] px-3 py-2 text-[#2d1d25] outline-none" />
+                      {formErrors.sku && <span className="mt-1 block text-xs text-red-700">{formErrors.sku}</span>}
+                    </label>
+                    <label className="block text-sm text-[#5d4454]">
+                      Descrição
+                      <textarea value={productForm.description} onChange={(event) => updateProductForm('description', event.target.value)} rows={3} className="mt-1 w-full rounded-2xl border border-[#efd7e7] bg-[#fffafc] px-3 py-2 text-[#2d1d25] outline-none" />
+                    </label>
+                    <div className="grid grid-cols-2 gap-3">
+                      <label className="block text-sm text-[#5d4454]">
+                        Preço de venda *
+                        <input required type="text" inputMode="decimal" placeholder="89,90" value={productForm.price} onChange={(event) => updateProductForm('price', event.target.value)} aria-invalid={Boolean(formErrors.price)} className="mt-1 w-full rounded-2xl border border-[#efd7e7] bg-[#fffafc] px-3 py-2 text-[#2d1d25] outline-none" />
+                        {formErrors.price && <span className="mt-1 block text-xs text-red-700">{formErrors.price}</span>}
+                      </label>
+                      <label className="block text-sm text-[#5d4454]">
+                        Preço promocional
+                        <input type="text" inputMode="decimal" placeholder="Opcional" value={productForm.salePrice} onChange={(event) => updateProductForm('salePrice', event.target.value)} aria-invalid={Boolean(formErrors.salePrice)} className="mt-1 w-full rounded-2xl border border-[#efd7e7] bg-[#fffafc] px-3 py-2 text-[#2d1d25] outline-none" />
+                        {formErrors.salePrice && <span className="mt-1 block text-xs text-red-700">{formErrors.salePrice}</span>}
+                      </label>
+                    </div>
+                    <label className="block text-sm text-[#5d4454]">
+                      Quantidade inicial em estoque *
+                      <input required type="number" min="0" step="1" inputMode="numeric" value={productForm.stock} onChange={(event) => updateProductForm('stock', event.target.value)} aria-invalid={Boolean(formErrors.stock)} className="mt-1 w-full rounded-2xl border border-[#efd7e7] bg-[#fffafc] px-3 py-2 text-[#2d1d25] outline-none" />
+                      {formErrors.stock && <span className="mt-1 block text-xs text-red-700">{formErrors.stock}</span>}
+                    </label>
+                    <ProductImageField
+                      currentImage={productForm.image}
+                      selectedFile={selectedImageFile}
+                      error={formErrors.image}
+                      disabled={isSavingProduct || Boolean(deletingProductId)}
+                      onFileChange={handleImageFileChange}
+                    />
+                    <label className="block text-sm text-[#5d4454]">
+                      Variações
+                      <input value={productForm.variations} onChange={(event) => updateProductForm('variations', event.target.value)} placeholder="Ex.: Dourado, Prata" className="mt-1 w-full rounded-2xl border border-[#efd7e7] bg-[#fffafc] px-3 py-2 text-[#2d1d25] outline-none" />
+                    </label>
+                    <label className="flex items-center gap-2 text-sm text-[#5d4454]">
+                      <input type="checkbox" checked={productForm.featured} onChange={(event) => updateProductForm('featured', event.target.checked)} className="h-4 w-4 accent-[#8B5E7C]" />
+                      Produto em destaque
+                    </label>
+                    <label className="flex items-center gap-2 text-sm text-[#5d4454]">
+                      <input type="checkbox" checked={productForm.isActive} onChange={(event) => updateProductForm('isActive', event.target.checked)} className="h-4 w-4 accent-[#8B5E7C]" />
+                      Produto visível na vitrine
+                    </label>
+                    {saveMessage ? <p role="status" className="text-sm text-[#5d4454]">{saveMessage}</p> : null}
+                    <button type="submit" disabled={isSavingProduct} className="w-full rounded-full bg-[#8B5E7C] px-4 py-3 text-sm font-medium text-white disabled:cursor-not-allowed disabled:opacity-60">
+                      {isSavingProduct
+                        ? 'Salvando produto...'
+                        : editingProductId ? 'Salvar alterações' : 'Salvar produto'}
+                    </button>
+                    {editingProductId && (
+                      <button
+                        type="button"
+                        disabled={isSavingProduct}
+                        onClick={() => {
+                          if (confirmDiscardProductForm()) resetProductForm();
+                        }}
+                        className="w-full rounded-full border border-[#efd7e7] px-4 py-3 text-sm font-medium text-[#76506a] disabled:opacity-60"
+                      >
+                        Cancelar edição
+                      </button>
+                    )}
+                    </fieldset>
+                  </form>
+                </div>
+
+              </div>
+            </section>
+        </main>
+      </div>
+    </div>
+  );
+}
+
+function WhatsAppSettingsForm() {
+  const { whatsappNumber, loading, error: settingsError, saveWhatsappNumber } = useStoreSettings();
+  const [numberInput, setNumberInput] = useState(whatsappNumber);
+  const [isDirty, setIsDirty] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+  const [message, setMessage] = useState('');
+  const [formError, setFormError] = useState('');
+
+  useEffect(() => {
+    if (!isDirty) setNumberInput(whatsappNumber);
+  }, [whatsappNumber, isDirty]);
+
+  const normalizedPreview = normalizeWhatsAppNumber(numberInput);
+
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setIsSaving(true);
+    setMessage('');
+    setFormError('');
+    try {
+      await saveWhatsappNumber(numberInput);
+      setIsDirty(false);
+      setMessage('WhatsApp comercial salvo e já aplicado à loja.');
+    } catch (reason) {
+      setFormError(reason instanceof Error ? reason.message : 'Erro inesperado ao salvar o WhatsApp.');
+    } finally {
+      setIsSaving(false);
+    }
+  }
+
+  return (
+    <form onSubmit={(event) => void handleSubmit(event)} className="max-w-2xl space-y-4">
+      {settingsError && <p role="alert" className="rounded-2xl bg-rose-50 p-3 text-sm text-rose-900">{settingsError}</p>}
+      <label className="block text-sm font-medium text-[#5d4454]">
+        Número comercial do WhatsApp
+        <input
+          type="tel"
+          inputMode="tel"
+          autoComplete="tel"
+          required
+          value={numberInput}
+          onChange={(event) => {
+            setNumberInput(event.target.value);
+            setIsDirty(true);
+            setMessage('');
+            setFormError('');
+          }}
+          placeholder="+55 11 99999-9999"
+          aria-invalid={Boolean(formError)}
+          className="mt-1 min-h-12 w-full rounded-2xl border border-[#efd7e7] bg-[#fffafc] px-4 text-[#2d1d25] outline-none focus:border-[#8B5E7C]"
+        />
+      </label>
+      <p className="text-xs leading-5 text-[#76506a]">Use o código do país; no Brasil, DDD e número. A loja exibirá o número confirmado no Supabase.</p>
+      {normalizedPreview ? (
+        <a
+          href={buildWhatsAppUrl(normalizedPreview, 'Olá! Vim pelo site da MADU.')}
+          target="_blank"
+          rel="noreferrer"
+          className="inline-flex min-h-11 items-center rounded-full border border-[#efd7e7] px-4 text-sm text-[#76506a]"
+        >
+          Testar WhatsApp configurado
+        </a>
+      ) : numberInput.trim() ? (
+        <p role="alert" className="text-sm text-red-700">Informe um telefone válido com código do país.</p>
+      ) : (
+        <p className="text-sm text-[#76506a]">Nenhum WhatsApp comercial configurado.</p>
+      )}
+      {formError && <p role="alert" className="text-sm text-red-700">{formError}</p>}
+      {message && <p role="status" className="text-sm text-[#5d4454]">{message}</p>}
+      <button
+        type="submit"
+        disabled={isSaving || loading || !normalizedPreview}
+        className="inline-flex min-h-11 items-center justify-center rounded-full bg-[#8B5E7C] px-6 text-sm font-medium text-white disabled:cursor-not-allowed disabled:opacity-60"
+      >
+        {isSaving ? 'Salvando...' : 'Salvar WhatsApp'}
+      </button>
+    </form>
+  );
+}
+
+const adminPaths: Record<AdminPageId, string> = {
+  dashboard: '/admin',
+  produtos: '/admin/produtos',
+  categorias: '/admin/categorias',
+  pedidos: '/admin/pedidos',
+  clientes: '/admin/clientes',
+  estoque: '/admin/estoque',
+  financeiro: '/admin/financeiro',
+  configuracoes: '/admin/configuracoes',
+  usuarios: '/admin/usuarios',
+};
+
+function AdminModulePage() {
+  const { module = '' } = useParams();
+  const navigate = useNavigate();
+  const { signOut, role } = useAdminAuth();
+  const { catalog, syncStatus } = useStorefrontProducts(true);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [message, setMessage] = useState('');
+  const modulePages: Record<string, { id: AdminPageId; title: string; description: string }> = {
+    categorias: {
+      id: 'categorias',
+      title: 'Categorias',
+      description: 'As categorias atuais vêm do catálogo local do projeto. Ainda não há tabela ou gravação de categorias no Supabase.',
+    },
+    pedidos: {
+      id: 'pedidos',
+      title: 'Pedidos',
+      description: 'Não há tabela nem integração de pedidos neste projeto. Os pedidos são negociados pelo WhatsApp e não são registrados no sistema.',
+    },
+    clientes: {
+      id: 'clientes',
+      title: 'Clientes',
+      description: 'Não há cadastro de clientes ou histórico de pedidos persistido. Nenhum dado de cliente é exibido ou inventado nesta área.',
+    },
+    estoque: {
+      id: 'estoque',
+      title: 'Estoque',
+      description: 'Os saldos abaixo são os valores atuais da coluna stock dos produtos. Não existe histórico de movimentações nem operação de entrada/saída.',
+    },
+    financeiro: {
+      id: 'financeiro',
+      title: 'Financeiro',
+      description: 'O sistema não registra pagamentos nem status financeiro. Como os pedidos são concluídos por WhatsApp, não há valores pagos ou pendentes disponíveis para exibir.',
+    },
+    configuracoes: {
+      id: 'configuracoes',
+      title: 'Configurações',
+      description: 'Configure o WhatsApp comercial usado nos links da vitrine e na finalização do carrinho.',
+    },
+    usuarios: {
+      id: 'usuarios',
+      title: 'Usuários e permissões',
+      description: 'Convide operadores e gerencie os perfis administrativos da loja.',
+    },
+  };
+  const currentModule = modulePages[module];
+
+  if (role === 'operator') return <Navigate to="/admin/produtos" replace />;
+
+  async function handleLogout() {
+    const error = await signOut();
+    if (error) {
+      setMessage(`Não foi possível encerrar a sessão: ${error}`);
+      return;
+    }
+    navigate('/admin/login', { replace: true });
+  }
+
+  return (
+    <div className="min-h-screen bg-[#f9eff4] text-[#2d1d25]">
+      <div className="flex min-h-screen">
+        <MaduSidebar
+          activePage={currentModule?.id ?? 'dashboard'}
+          userRole={role ?? 'operator'}
+          mobileOpen={mobileMenuOpen}
+          onClose={() => setMobileMenuOpen(false)}
+          onLogout={() => void handleLogout()}
+          onNavigate={(page) => navigate(adminPaths[page])}
+        />
+        <main className="min-w-0 flex-1 bg-[#fffafc] p-4 sm:p-7 lg:p-9">
+          <header className="mb-6 flex items-center justify-between border-b border-[#f1dfe9] pb-4">
+            <div>
+              <button
+                type="button"
+                aria-label="Abrir menu"
+                onClick={() => setMobileMenuOpen(true)}
+                className="mb-4 rounded-xl border border-[#efd7e7] bg-white p-2 text-[#8B5E7C] md:hidden"
+              >
+                <Menu size={18} />
+              </button>
+              <p className="text-xs uppercase tracking-[0.24em] text-[#8B5E7C]">Painel administrativo</p>
+              <h1 className="mt-2 text-2xl font-semibold">{currentModule?.title ?? 'Área administrativa'}</h1>
+            </div>
+            <Link to="/" className="rounded-full bg-[#8B5E7C] px-4 py-2.5 text-sm font-medium text-white">Ver loja</Link>
+          </header>
+          <p className="mb-5 rounded-2xl border border-[#f1dfe9] bg-[#fef3f8] px-4 py-3 text-xs text-[#5d4454]">{syncStatus}</p>
+          {message && <p role="alert" className="mb-5 rounded-2xl bg-rose-50 p-3 text-sm text-rose-900">{message}</p>}
+          {currentModule?.id === 'estoque' ? (
+            <section className="overflow-x-auto rounded-3xl border border-[#f1dfe9] bg-white p-5">
+              <p className="mb-4 text-sm text-[#5d4454]">{currentModule.description}</p>
+              <table className="min-w-full text-left text-sm">
+                <thead className="text-[#5d4454]"><tr><th className="px-3 py-2">Produto</th><th className="px-3 py-2">SKU</th><th className="px-3 py-2">Saldo</th></tr></thead>
+                <tbody>
+                  {catalog.map((product) => <tr key={product.id} className="border-t border-[#f1dfe9]"><td className="px-3 py-3">{product.name}</td><td className="px-3 py-3">{product.sku ?? '—'}</td><td className="px-3 py-3">{product.stock}</td></tr>)}
+                  {catalog.length === 0 && <tr><td colSpan={3} className="px-3 py-6 text-center text-[#5d4454]">Nenhum produto disponível para consulta.</td></tr>}
+                </tbody>
+              </table>
+            </section>
+          ) : currentModule?.id === 'categorias' ? (
+            <section className="rounded-3xl border border-[#f1dfe9] bg-white p-5">
+              <p className="mb-4 text-sm text-[#5d4454]">{currentModule.description}</p>
+              <ul className="flex flex-wrap gap-2">{categories.map((category) => <li key={category} className="rounded-full bg-[#f8e9ef] px-3 py-2 text-sm text-[#5d4454]">{category}</li>)}</ul>
+            </section>
+          ) : currentModule?.id === 'configuracoes' ? (
+            <section className="rounded-3xl border border-[#f1dfe9] bg-white p-5 sm:p-7">
+              <p className="mb-5 text-sm text-[#5d4454]">{currentModule.description}</p>
+              <WhatsAppSettingsForm />
+            </section>
+          ) : currentModule?.id === 'usuarios' ? (
+            <UserManagement />
+          ) : (
+            <section className="rounded-3xl border border-[#f1dfe9] bg-white p-6 sm:p-8">
+              <h2 className="text-lg font-semibold">{currentModule?.title ?? 'Módulo não encontrado'}</h2>
+              <p className="mt-2 max-w-2xl text-sm leading-6 text-[#5d4454]">
+                {currentModule?.description ?? 'A área solicitada não existe.'}
+              </p>
+            </section>
+          )}
+        </main>
+      </div>
+    </div>
+  );
+}
+
+function ProductCard({ product }: { product: ProductView }) {
+  return (
+    <article className="overflow-hidden rounded-[2rem] border border-[#f1dfe9] bg-white shadow-sm transition hover:-translate-y-1 hover:shadow-soft">
+      <Link to={`/produto/${product.slug}`}>
+        <img src={product.image} alt={product.name} className="h-64 w-full object-cover" />
+      </Link>
+      <div className="p-4">
+        <div className="mb-2 flex items-center justify-between">
+          <span className="rounded-full bg-[#f8e9ef] px-2 py-1 text-[10px] uppercase tracking-[0.14em] text-[#8B5E7C]">{product.category}</span>
+          {product.sale_price_cents !== undefined && <span className="text-[10px] font-medium uppercase tracking-[0.14em] text-[#8B5E7C]">Promo</span>}
+        </div>
+        <Link to={`/produto/${product.slug}`} className="text-lg font-semibold text-[#2d1d25]">{product.name}</Link>
+        <div className="mt-3 flex items-center gap-2">
+          <span className="text-lg font-semibold text-[#2d1d25]">{formatCurrency(product.sale_price_cents ?? product.price_cents)}</span>
+          {product.sale_price_cents !== undefined ? <span className="text-sm text-[#9c7d8d] line-through">{formatCurrency(product.price_cents)}</span> : null}
+        </div>
+      </div>
+    </article>
+  );
+}
+
+function Header() {
+  const { totalItems } = useCart();
+
+  return (
+    <header className="sticky top-0 z-40 border-b border-[#f2dde8] bg-[#fffafc]/90 backdrop-blur-sm">
+      <div className="mx-auto flex max-w-6xl items-center justify-between gap-3 px-4 py-3 sm:px-6 lg:px-8">
+        <Link to="/" className="flex items-center gap-3">
+          <img
+            src={maduLogo}
+            alt="Madu Acessórios"
+            className="h-12 w-auto object-contain"
+          />
+        </Link>
+
+        <nav className="hidden items-center gap-6 text-sm text-[#5d4454] md:flex">
+          <NavLink to="/" className={({ isActive }) => (isActive ? 'font-semibold text-[#2d1d25]' : '')}>Início</NavLink>
+          <NavLink to="/produtos" className={({ isActive }) => (isActive ? 'font-semibold text-[#2d1d25]' : '')}>Produtos</NavLink>
+        </nav>
+
+        <div className="flex items-center gap-2">
+          <button type="button" aria-label="Pesquisar" className="rounded-full border border-[#efd7e7] bg-white p-2.5 text-[#8B5E7C]">
+            <Search size={18} />
+          </button>
+          <Link to="/carrinho" className="relative inline-flex rounded-full border border-[#efd7e7] bg-white p-2.5 text-[#8B5E7C]">
+            <ShoppingBag size={18} />
+            {totalItems > 0 && <span className="absolute -right-1 -top-1 flex h-5 min-w-5 items-center justify-center rounded-full bg-[#8B5E7C] px-1 text-[10px] font-semibold text-white">{totalItems}</span>}
+          </Link>
+        </div>
+      </div>
+    </header>
+  );
+}
+
+export function Footer() {
+  const { whatsappNumber } = useStoreSettings();
+
+  return (
+    <footer className="border-t border-[#f2dde8] bg-[#fffafc]">
+      <div className="mx-auto flex max-w-6xl flex-col gap-3 px-4 py-8 text-sm text-[#5d4454] sm:flex-row sm:items-center sm:justify-between sm:px-6 lg:px-8">
+        <p>© 2026 Madu Acessórios</p>
+        <div className="flex gap-4">
+          <span>Instagram</span>
+          {whatsappNumber ? (
+            <a href={buildWhatsAppUrl(whatsappNumber, 'Olá! Vim pelo site da MADU.')} target="_blank" rel="noreferrer" className="hover:text-[#8B5E7C]">
+              WhatsApp
+            </a>
+          ) : (
+            <span aria-label="WhatsApp não configurado">WhatsApp</span>
+          )}
+          <span>Política</span>
+        </div>
+        <Link
+          to="/admin/login"
+          aria-label="Área administrativa"
+          title="Área administrativa"
+          className="inline-flex min-h-11 items-center gap-2 self-start rounded-full border border-[#efd7e7] px-4 text-xs text-[#8B5E7C] transition hover:bg-[#f8e9ef] sm:self-auto"
+        >
+          <Settings size={15} aria-hidden="true" />
+          Área administrativa
+        </Link>
+      </div>
+    </footer>
+  );
+}
+
+export default App;
