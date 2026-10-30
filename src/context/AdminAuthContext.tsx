@@ -2,32 +2,50 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import type { ReactNode } from 'react';
 import type { User } from '@supabase/supabase-js';
 import { supabase } from '../lib/supabase';
-import { resolveAdminPermission, type AdminRole } from '../lib/adminAuth';
+import {
+  getAdminLoginErrorMessage,
+  resolveAdminPermission,
+  type AdminLoginError,
+  type AdminPermissionIssue,
+  type AdminRole,
+} from '../lib/adminAuth';
 
 type AdminAuthContextValue = {
   user: User | null;
   role: AdminRole | null;
+  permissionIssue: AdminPermissionIssue;
   loading: boolean;
   roleLoading: boolean;
   roleError: string;
+  sessionNotice: string;
   configured: boolean;
   refreshRole: () => Promise<void>;
   refreshSession: () => Promise<string | null>;
-  signIn: (email: string, password: string) => Promise<{ error: string | null; role: AdminRole | null }>;
+  signIn: (email: string, password: string) => Promise<{
+    error: AdminLoginError | null;
+    role: AdminRole | null;
+    permissionIssue: AdminPermissionIssue;
+  }>;
   signOut: () => Promise<string | null>;
   sendPasswordReset: (email: string) => Promise<string | null>;
 };
 
 const AdminAuthContext = createContext<AdminAuthContextValue | null>(null);
 
-type PermissionCheckResult = { role: AdminRole | null; error: string | null };
+type PermissionCheckResult = {
+  role: AdminRole | null;
+  error: string | null;
+  issue: AdminPermissionIssue;
+};
 
 export function AdminAuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
   const [role, setRole] = useState<AdminRole | null>(null);
+  const [permissionIssue, setPermissionIssue] = useState<AdminPermissionIssue>(null);
   const [roleLoading, setRoleLoading] = useState(true);
   const [roleError, setRoleError] = useState('');
+  const [sessionNotice, setSessionNotice] = useState('');
   const roleRequestId = useRef(0);
   const roleRequest = useRef<{ userId: string; promise: Promise<PermissionCheckResult> } | null>(null);
 
@@ -43,34 +61,38 @@ export function AdminAuthProvider({ children }: { children: ReactNode }) {
     const request = (async (): Promise<PermissionCheckResult> => {
       try {
         if (!supabase) {
-          return { role: null, error: 'Supabase não configurado.' };
+          return { role: null, error: 'Supabase não configurado.', issue: null };
         }
 
         const { data, error } = await supabase
           .from('admin_user_permissions')
-          .select('user_id, email, role, is_active, status')
+          .select('user_id, role, is_active, status')
           .eq('user_id', targetUser.id)
-          .eq('is_active', true)
-          .eq('status', 'active')
           .maybeSingle();
 
-        if (requestId !== roleRequestId.current) return { role: null, error: null };
+        if (requestId !== roleRequestId.current) return { role: null, error: null, issue: null };
         if (error) {
-          const message = `Não foi possível verificar as permissões: ${error.message}`;
+          const message = `Não foi possível verificar as permissões: ${getAdminLoginErrorMessage(error)}`;
           setRole(null);
+          setPermissionIssue(null);
           setRoleError(message);
-          return { role: null, error: message };
+          return { role: null, error: message, issue: null };
         }
 
         const currentRole = resolveAdminPermission(data, targetUser);
         setRole(currentRole);
-        return { role: currentRole, error: null };
+        const issue = data
+          ? currentRole ? null : 'unauthorized'
+          : 'missing-profile';
+        setPermissionIssue(issue);
+        return { role: currentRole, error: null, issue };
       } catch (reason) {
-        if (requestId !== roleRequestId.current) return { role: null, error: null };
-        const message = `Não foi possível verificar as permissões: ${reason instanceof Error ? reason.message : 'erro inesperado.'}`;
+        if (requestId !== roleRequestId.current) return { role: null, error: null, issue: null };
+        const message = `Não foi possível verificar as permissões: ${getAdminLoginErrorMessage(reason)}`;
         setRole(null);
+        setPermissionIssue(null);
         setRoleError(message);
-        return { role: null, error: message };
+        return { role: null, error: message, issue: null };
       } finally {
         if (requestId === roleRequestId.current) setRoleLoading(false);
       }
@@ -98,7 +120,9 @@ export function AdminAuthProvider({ children }: { children: ReactNode }) {
       if (active) {
         setUser(session?.user ?? null);
         setRole(null);
+        setPermissionIssue(null);
         setRoleError('');
+        if (session) setSessionNotice('');
         setRoleLoading(Boolean(session?.user));
         setLoading(false);
       }
@@ -109,13 +133,25 @@ export function AdminAuthProvider({ children }: { children: ReactNode }) {
       }
     });
 
-    void supabase.auth.getSession().then(({ data, error }) => {
-      if (!active || authEventReceived) return;
-      if (error) console.error('Não foi possível restaurar a sessão administrativa.', error);
-      setUser(data.session?.user ?? null);
-      setRoleLoading(Boolean(data.session?.user));
-      setLoading(false);
-    });
+    void supabase.auth.getSession()
+      .then(({ data, error }) => {
+        if (!active || authEventReceived) return;
+        if (error) {
+          console.error('Não foi possível restaurar a sessão administrativa.', error);
+          setSessionNotice(getAdminLoginErrorMessage(error));
+        }
+        setUser(data.session?.user ?? null);
+        setRoleLoading(Boolean(data.session?.user));
+        setLoading(false);
+      })
+      .catch((error: unknown) => {
+        if (!active || authEventReceived) return;
+        console.error('Não foi possível restaurar a sessão administrativa.', error);
+        setSessionNotice(getAdminLoginErrorMessage(error));
+        setUser(null);
+        setRoleLoading(false);
+        setLoading(false);
+      });
 
     return () => {
       active = false;
@@ -127,6 +163,7 @@ export function AdminAuthProvider({ children }: { children: ReactNode }) {
     if (!supabase || !user) {
       roleRequestId.current += 1;
       setRole(null);
+      setPermissionIssue(null);
       setRoleError('');
       setRoleLoading(false);
       return;
@@ -142,27 +179,61 @@ export function AdminAuthProvider({ children }: { children: ReactNode }) {
   const value = useMemo<AdminAuthContextValue>(() => ({
     user,
     role,
+    permissionIssue,
     loading,
     roleLoading,
     roleError,
+    sessionNotice,
     configured: Boolean(supabase),
     refreshRole,
     refreshSession: async () => {
       if (!supabase) return 'Supabase não configurado.';
       const { error } = await supabase.auth.refreshSession();
+      if (error) {
+        setSessionNotice(getAdminLoginErrorMessage(error));
+      } else {
+        setSessionNotice('');
+      }
       return error?.message ?? null;
     },
     signIn: async (email, password) => {
-      if (!supabase) return { error: 'Supabase não configurado.', role: null };
+      if (!supabase) {
+        return {
+          error: { message: 'Supabase não configurado.' },
+          role: null,
+          permissionIssue: null,
+        };
+      }
+      setSessionNotice('');
       const { data, error } = await supabase.auth.signInWithPassword({ email, password });
-      if (error) return { error: error.message, role: null };
-      if (!data.user) return { error: 'O Supabase não retornou a conta autenticada.', role: null };
+      if (error) {
+        return {
+          error: { message: error.message, code: error.code, status: error.status },
+          role: null,
+          permissionIssue: null,
+        };
+      }
+      if (!data.session?.user) {
+        return {
+          error: { message: 'O Supabase não retornou uma sessão autenticada.', code: 'session_missing' },
+          role: null,
+          permissionIssue: null,
+        };
+      }
 
-      setUser(data.user);
+      setSessionNotice('');
+      setUser(data.session.user);
       setRole(null);
+      setPermissionIssue(null);
       setRoleError('');
-      const authorization = await refreshRoleForUser(data.user);
-      return { error: authorization.error, role: authorization.role };
+      const authorization = await refreshRoleForUser(data.session.user, true);
+      return {
+        error: authorization.error
+          ? { message: authorization.error, code: 'permission_check_failed' }
+          : null,
+        role: authorization.role,
+        permissionIssue: authorization.issue,
+      };
     },
     signOut: async () => {
       if (!supabase) return 'Supabase não configurado.';
@@ -176,7 +247,17 @@ export function AdminAuthProvider({ children }: { children: ReactNode }) {
       });
       return error?.message ?? null;
     },
-  }), [user, role, loading, roleLoading, roleError, refreshRole, refreshRoleForUser]);
+  }), [
+    user,
+    role,
+    permissionIssue,
+    loading,
+    roleLoading,
+    roleError,
+    sessionNotice,
+    refreshRole,
+    refreshRoleForUser,
+  ]);
 
   return <AdminAuthContext.Provider value={value}>{children}</AdminAuthContext.Provider>;
 }

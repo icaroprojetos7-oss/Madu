@@ -7,7 +7,18 @@ import { getAdminLoginErrorMessage } from '../lib/adminAuth';
 import maduLogo from '../assets/madu-logo-transparent.png';
 
 export function AdminLoginPage() {
-  const { user, role, roleLoading, roleError, configured, signIn, signOut, sendPasswordReset } = useAdminAuth();
+  const {
+    user,
+    role,
+    permissionIssue,
+    roleLoading,
+    roleError,
+    sessionNotice,
+    configured,
+    signIn,
+    signOut,
+    sendPasswordReset,
+  } = useAdminAuth();
   const navigate = useNavigate();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -31,13 +42,15 @@ export function AdminLoginPage() {
         return;
       }
       if (!result.role) {
-        setMessage('Esta conta não tem autorização para acessar o painel da MADU.');
+        setMessage(result.permissionIssue === 'missing-profile'
+          ? 'A autenticação foi concluída, mas esta conta não tem perfil associado ao painel. Peça a um administrador para verificar o cadastro.'
+          : 'A autenticação foi concluída, mas esta conta não tem autorização para acessar o painel da MADU.');
         return;
       }
 
       navigate(result.role === 'admin' ? '/admin' : '/admin/produtos', { replace: true });
     } catch (error) {
-      setMessage(`Não foi possível entrar: ${error instanceof Error ? error.message : 'erro inesperado.'}`);
+      setMessage(getAdminLoginErrorMessage(error));
     } finally {
       setIsSubmitting(false);
     }
@@ -71,8 +84,8 @@ export function AdminLoginPage() {
   }
 
   return (
-    <main className="flex min-h-screen items-center justify-center bg-[#f9eff4] px-4 py-10 text-[#2d1d25]">
-      <section className="w-full max-w-md rounded-[2rem] border border-[#f1dfe9] bg-white p-6 shadow-soft sm:p-9">
+    <main className="flex min-h-dvh items-center justify-center bg-[#f9eff4] px-4 pt-[calc(1.5rem+env(safe-area-inset-top))] pb-[calc(1.5rem+env(safe-area-inset-bottom))] text-[#2d1d25]">
+      <section className="my-auto w-full max-w-md rounded-[2rem] border border-[#f1dfe9] bg-white p-5 shadow-soft sm:p-9">
         <Link to="/" className="mb-8 inline-flex" aria-label="Voltar para a loja MADU">
           <img
             src={maduLogo}
@@ -100,7 +113,9 @@ export function AdminLoginPage() {
             <p role="alert" className="rounded-2xl bg-rose-50 p-3 text-sm text-rose-900">
               {roleError || (
                 <>
-                  Esta conta não tem autorização para acessar o painel da MADU.
+                  {permissionIssue === 'missing-profile'
+                    ? 'Esta conta não tem perfil associado ao painel da MADU.'
+                    : 'Esta conta não tem autorização para acessar o painel da MADU.'}
                   <span className="mt-2 block">
                     Peça a um administrador para confirmar seu perfil ativo e, depois, encerre a sessão e entre novamente.
                   </span>
@@ -113,15 +128,21 @@ export function AdminLoginPage() {
           </div>
         ) : (
           <form onSubmit={(event) => void handleSubmit(event)} className="mt-6 space-y-4">
+            {sessionNotice && (
+              <p role="alert" className="rounded-2xl bg-rose-50 p-3 text-sm text-rose-900">
+                {sessionNotice}
+              </p>
+            )}
             <label className="block text-sm font-medium text-[#5d4454]">
               E-mail
               <input
                 type="email"
+                inputMode="email"
                 autoComplete="username"
                 required
                 value={email}
                 onChange={(event) => setEmail(event.target.value)}
-                className="mt-1 w-full rounded-2xl border border-[#efd7e7] bg-[#fffafc] px-4 py-3 text-[#2d1d25] outline-none focus:border-[#8B5E7C]"
+                className="mt-1 min-h-12 w-full rounded-2xl border border-[#efd7e7] bg-[#fffafc] px-4 py-3 text-[#2d1d25] outline-none focus:border-[#8B5E7C]"
               />
             </label>
             <label className="block text-sm font-medium text-[#5d4454]">
@@ -129,28 +150,29 @@ export function AdminLoginPage() {
               <span className="relative mt-1 block">
                 <input
                   type={showPassword ? 'text' : 'password'}
+                  autoCapitalize="none"
                   autoComplete="current-password"
                   required
                   value={password}
                   onChange={(event) => setPassword(event.target.value)}
-                  className="w-full rounded-2xl border border-[#efd7e7] bg-[#fffafc] px-4 py-3 pr-12 text-[#2d1d25] outline-none focus:border-[#8B5E7C]"
+                  className="min-h-12 w-full rounded-2xl border border-[#efd7e7] bg-[#fffafc] px-4 py-3 pr-12 text-[#2d1d25] outline-none focus:border-[#8B5E7C]"
                 />
                 <button
                   type="button"
                   aria-label={showPassword ? 'Ocultar senha' : 'Mostrar senha'}
                   onClick={() => setShowPassword((value) => !value)}
-                  className="absolute inset-y-0 right-0 inline-flex items-center px-4 text-[#8B5E7C]"
+                  className="absolute inset-y-0 right-0 inline-flex min-h-12 min-w-12 items-center justify-center text-[#8B5E7C]"
                 >
                   {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
                 </button>
               </span>
             </label>
             {message && <p role="alert" className="rounded-2xl bg-rose-50 p-3 text-sm text-rose-900">{message}</p>}
-            <button type="submit" disabled={!configured || isSubmitting} className="inline-flex w-full items-center justify-center gap-2 rounded-full bg-[#8B5E7C] px-5 py-3 text-sm font-semibold text-white transition hover:bg-[#76506a] disabled:cursor-not-allowed disabled:opacity-60">
+            <button type="submit" disabled={!configured || isSubmitting} className="inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-full bg-[#8B5E7C] px-5 py-3 text-sm font-semibold text-white transition hover:bg-[#76506a] disabled:cursor-not-allowed disabled:opacity-60">
               {isSubmitting && <LoaderCircle size={17} className="animate-spin" />}
               {isSubmitting ? 'Aguarde...' : 'Entrar'}
             </button>
-            <button type="button" disabled={!configured || isSubmitting} onClick={() => void handlePasswordReset()} className="w-full py-2 text-sm text-[#8B5E7C] underline-offset-4 hover:underline disabled:opacity-60">
+            <button type="button" disabled={!configured || isSubmitting} onClick={() => void handlePasswordReset()} className="min-h-11 w-full py-2 text-sm text-[#8B5E7C] underline-offset-4 hover:underline disabled:opacity-60">
               Esqueci minha senha
             </button>
           </form>

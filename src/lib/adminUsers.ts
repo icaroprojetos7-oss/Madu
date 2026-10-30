@@ -1,10 +1,8 @@
 import { supabase } from './supabase';
-import type { AdminRole } from './adminAuth';
-
 export type ManagedUser = {
   id: string;
   email: string;
-  role: AdminRole;
+  role: 'admin';
   createdAt: string;
   lastSignInAt: string | null;
 };
@@ -12,7 +10,6 @@ export type ManagedUser = {
 type AdminUsersResponse = {
   users?: ManagedUser[];
   user?: ManagedUser | null;
-  invited?: boolean;
   revoked?: boolean;
   error?: string;
 };
@@ -47,14 +44,7 @@ export async function listManagedUsers(): Promise<ManagedUser[]> {
   return result.users;
 }
 
-export async function grantUserRole(email: string, role: AdminRole) {
-  const result = await invokeAdminUsers({ action: 'grant', email, role });
-  if (!result.user) throw new Error('A função não confirmou a concessão de acesso.');
-  return { user: result.user, invited: Boolean(result.invited) };
-}
-
-export async function changeUserRole(userId: string, role: AdminRole | null) {
-  const result = await invokeAdminUsers({ action: 'set-role', userId, role });
-  if (role && !result.user) throw new Error('A função não confirmou a alteração de acesso.');
-  if (!role && result.revoked !== true) throw new Error('A função não confirmou a revogação do acesso.');
+export async function revokeUserAccess(userId: string) {
+  const result = await invokeAdminUsers({ action: 'revoke', userId });
+  if (result.revoked !== true) throw new Error('A função não confirmou a revogação do acesso.');
 }

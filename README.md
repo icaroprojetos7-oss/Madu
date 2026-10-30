@@ -34,6 +34,61 @@ Este projeto entrega uma base funcional para loja pública e painel administrati
 
 Os arquivos de identidade visual ficam organizados em `public/assets/brand/`. A loja usa `madu-logo-transparent.png`; o favicon e as variações SVG/WEBP permanecem no mesmo diretório.
 
+## Firebase Hosting
+
+O Firebase Hosting publica o build estático do Vite (`dist`) e direciona rotas da aplicação, como `/admin/login`, para `index.html`. Os arquivos estáticos existentes são servidos normalmente pelo Hosting. Este é o único destino de hospedagem documentado para produção.
+
+### Aplicativo instalável (PWA)
+
+A loja inclui `manifest.webmanifest`, ícones da marca, um botão de instalação e um service worker. Em HTTPS, o Chrome Android pode oferecer a instalação e abrir a loja em modo standalone; no iOS e em navegadores sem o prompt nativo, o botão mostra as instruções de instalação disponíveis. A navegação inferior aparece nas telas públicas em dispositivos móveis.
+
+O service worker é registrado somente em builds de produção. Ele mantém o app shell para uma página offline informativa e armazena em cache apenas assets estáticos versionados; não armazena chamadas de API, autenticação, tokens, catálogo do Supabase nem imagens remotas de produtos. Operações que precisam do servidor continuam indisponíveis sem conexão. As versões antigas do cache do app são removidas na ativação da nova versão; quando uma atualização assume o controle, a interface oferece recarga explícita para não interromper formulários.
+
+O manifest usa `display: standalone`, `display_override: ["standalone"]`, escopo `/` e ícones regulares e maskable. No Android, use a opção **Instalar app** do Chrome para criar uma instalação PWA. Se uma versão anterior tiver sido adicionada como atalho e ainda abrir com a barra do Chrome, remova esse atalho/aplicativo antigo e instale novamente após a atualização do site; “Adicionar à tela inicial” pode criar apenas um atalho em algumas versões do Chrome.
+
+O projeto padrão está vinculado ao Firebase `maduacessorios-b8d44`. Para publicar, instale ou execute o Firebase CLI e autentique-se:
+
+```bash
+npx firebase-tools login
+npm run build
+npx firebase-tools deploy --only hosting
+```
+
+O Firebase Hosting não compila o app nem injeta variáveis de ambiente. Configure `VITE_SUPABASE_URL`, `VITE_SUPABASE_PUBLISHABLE_KEY` (ou `VITE_SUPABASE_ANON_KEY`) e `VITE_WHATSAPP_NUMBER` no ambiente de build antes de executar `npm run build` (por exemplo, em `.env.production.local`, que não deve ser commitado). Essas variáveis públicas são incorporadas ao frontend durante o build; nunca use `service_role`. Use `--project OUTRO_PROJECT_ID` para substituir o projeto padrão em um deploy específico. O service worker e o manifest também são publicados como arquivos estáticos do Firebase Hosting.
+
+Após o primeiro deploy, adicione o domínio do Hosting (por exemplo, `https://SEU_PROJECT_ID.web.app`) aos Site URLs e Redirect URLs do Supabase Auth, conforme as rotas `/admin/login` e `/admin` descritas acima. O Firebase é usado somente para hospedar os arquivos estáticos; autenticação, dados e imagens continuam no Supabase.
+
+### Variáveis de ambiente por ambiente
+
+Configure as variáveis no ambiente que executa o build local ou no pipeline de CI que publica no Firebase Hosting:
+
+- Desenvolvimento: use o projeto local ou um ambiente de desenvolvimento dedicado do Supabase.
+- Produção: use o projeto Supabase oficial da MADU e a URL publicada no Firebase Hosting.
+
+As variáveis públicas esperadas pelo app são:
+
+```bash
+VITE_SUPABASE_URL=https://seu-projeto.supabase.co
+VITE_SUPABASE_PUBLISHABLE_KEY=sua-chave-publica
+# ou, em compatibilidade antiga:
+# VITE_SUPABASE_ANON_KEY=sua-chave-anon
+VITE_WHATSAPP_NUMBER=+5511999999999
+```
+
+Nunca configure `service_role` em qualquer `VITE_*` nem exponha segredos no frontend. O Preview deve apontar para um projeto separado sempre que possível para evitar alteração indevida dos dados de produção.
+
+### Autenticação do Supabase (Site URL e redirects)
+
+Para que o painel administrativo funcione corretamente, configure no Supabase Auth:
+
+- Site URL: a URL de produção do Firebase Hosting ou o domínio customizado associado a ele.
+- Redirect URLs adicionais: `https://<dominio-firebase-ou-customizado>/admin/login` e `https://<dominio-firebase-ou-customizado>/admin`. Inclua também URLs exatas de canais de preview do Firebase somente se forem usados para testar Auth.
+- Recuperação de senha: use a rota `/admin/login`, que o app usa para finalizar o fluxo de reset.
+- Convites de usuários e confirmação de e-mail: mantenha os domínios aprovados limitados ao domínio da MADU e aos canais de preview realmente usados.
+- Autenticação administrativa: a aplicação usa `supabase.auth` para login, logout e reset de senha e verifica permissões em `admin_user_permissions`.
+
+Em desenvolvimento local, inclua também `http://localhost:5173/admin/login` e `http://127.0.0.1:5173/admin/login` nos redirects autorizados. Evite permitir redirecionamentos arbitrários para domínios desconhecidos.
+
 ## Integração com Supabase
 
 Para desenvolvimento local:
@@ -47,11 +102,11 @@ O schema, as categorias iniciais, índices, grants e policies RLS são aplicados
 
 O painel grava produtos somente quando o Supabase confirma a operação. O catálogo de demonstração é usado apenas no modo de desenvolvimento sem Supabase; em produção, uma configuração ausente ou falha de leitura não exibe produtos fictícios. A vitrine consulta somente produtos ativos, enquanto o painel autorizado pode gerenciar produtos ativos e ocultos.
 
-Imagens JPG, PNG e WebP de até 10 MB são enviadas ao bucket público `product-images`; a URL pública fica em `products.image`. Administradores e operadores autenticados podem enviar imagens; somente administradores podem excluir objetos. A substituição não apaga imagens antigas, e uploads órfãos não são removidos automaticamente. O limite do bucket é 10 MB; confirme também que o limite global de upload do projeto Supabase permite esse tamanho.
+Imagens JPG, PNG e WebP de até 10 MB são enviadas ao bucket público `product-images`; a URL pública fica em `products.image`. Administradores autenticados podem enviar imagens e excluir objetos. A substituição não apaga imagens antigas, e uploads órfãos não são removidos automaticamente. O limite do bucket é 10 MB; confirme também que o limite global de upload do projeto Supabase permite esse tamanho.
 
 O telefone comercial é normalizado e persistido em `store_settings.whatsapp_number`, na linha `id = 'main'`; vitrine, rodapé e mensagem do carrinho usam esse valor. Sem telefone configurado ou catálogo validado, a finalização por WhatsApp fica indisponível em vez de usar um número de exemplo. O carrinho atualiza preço, nome, imagem e estoque do catálogo e bloqueia itens indisponíveis ou acima do estoque atual.
 
-O acesso é baseado em `admin_user_permissions`: administradores podem gerenciar usuários e configurações; operadores podem gerenciar produtos; ambos têm acesso ao catálogo autorizado. A Edge Function `admin-users` usa a chave privilegiada exclusivamente no servidor e a migration impede remover o último administrador. Migrações e Edge Functions não são aplicadas automaticamente; siga `docs/ADMIN_SETUP.md` para configuração e implantação explícitas.
+O acesso ao painel é baseado em `admin_user_permissions`, com um único papel `admin`; a Edge Function `admin-users` lista e revoga acessos, mas não concede novos. A chave privilegiada permanece exclusivamente no servidor, e o banco impede revogar o último administrador. Migrações e Edge Functions não são aplicadas automaticamente; siga `docs/ADMIN_SETUP.md` para configuração e implantação explícitas.
 
 Categorias administrativas, clientes, pedidos e financeiro continuam sem integração funcional. O checkout abre o WhatsApp, mas não grava pedidos nem confirma pagamentos.
 

@@ -3,13 +3,18 @@ import { products as fallbackProducts, type Product } from '../data/mockProducts
 import { validateProductImageFile } from './products';
 
 export const PRODUCT_IMAGES_BUCKET = 'product-images';
-const supabaseUrl =
-  import.meta.env.NEXT_PUBLIC_SUPABASE_URL ??
-  (import.meta.env.VITE_SUPABASE_URL as string | undefined);
-const supabaseKey =
-  import.meta.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ??
-  (import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY as string | undefined) ??
-  (import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined);
+const viteUrl = import.meta.env.VITE_SUPABASE_URL?.trim();
+const viteKey = (
+  import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY ??
+  import.meta.env.VITE_SUPABASE_ANON_KEY
+)?.trim();
+const useViteConfig = Boolean(viteUrl || viteKey);
+const supabaseUrl = useViteConfig
+  ? viteUrl
+  : import.meta.env.NEXT_PUBLIC_SUPABASE_URL?.trim();
+const supabaseKey = useViteConfig
+  ? viteKey
+  : import.meta.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY?.trim();
 
 export const supabase =
   supabaseUrl && supabaseKey && supabaseUrl !== 'https://example.supabase.co'

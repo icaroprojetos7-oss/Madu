@@ -9,38 +9,6 @@ from auth.users as users
 where users.id = permissions.user_id
   and users.email is not null;
 
-do $$
-declare
-  target_user_id uuid;
-begin
-  select id
-  into target_user_id
-  from auth.users
-  where lower(email) = 'iicarohenrrique99@gmail.com';
-
-  if target_user_id is null then
-    raise exception 'Conta Auth iIcarohenrrique99@gmail.com não encontrada. Crie a conta antes de aplicar esta migration.';
-  end if;
-
-  insert into public.admin_user_permissions (user_id, email, role, is_active, status)
-  select id, lower(email), 'admin', true, 'active'
-  from auth.users
-  where id = target_user_id
-  on conflict (user_id) do update
-    set email = excluded.email,
-        role = 'admin',
-        is_active = true,
-        status = 'active',
-        updated_at = now();
-
-  update auth.users
-  set raw_app_meta_data =
-    (coalesce(raw_app_meta_data, '{}'::jsonb) - 'role')
-    || jsonb_build_object('role', 'admin')
-  where id = target_user_id;
-end
-$$;
-
 create or replace function private.is_store_admin()
 returns boolean
 language sql

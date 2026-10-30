@@ -37,16 +37,17 @@ const authenticatedUser = {
 };
 
 function Consumer() {
-  const { role, roleError, signIn } = useAdminAuth();
+  const { role, roleError, permissionIssue, signIn } = useAdminAuth();
   return (
     <>
       <output data-testid="role">{role ?? 'none'}</output>
       <output data-testid="role-error">{roleError}</output>
+      <output data-testid="permission-issue">{permissionIssue ?? 'none'}</output>
       <button type="button" onClick={() => mocks.emitAuth()}>Emit sign in</button>
       <button
         type="button"
         onClick={() => void signIn('owner@example.com', 'password').then((result) => {
-          document.body.dataset.signInResult = `${result.error ?? 'ok'}:${result.role ?? 'none'}`;
+          document.body.dataset.signInResult = `${result.error?.code ?? 'ok'}:${result.role ?? 'none'}:${result.permissionIssue ?? 'none'}`;
         })}
       >
         Sign in
@@ -88,8 +89,7 @@ describe('admin authorization context', () => {
     mocks.maybeSingle.mockResolvedValue({
       data: {
         user_id: authenticatedUser.id,
-        email: 'owner@example.COM',
-        role: 'operator',
+        role: 'admin',
         is_active: true,
         status: 'active',
       },
@@ -103,12 +103,13 @@ describe('admin authorization context', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Emit sign in' }));
 
-    await waitFor(() => expect(screen.getByTestId('role')).toHaveTextContent('operator'));
+    await waitFor(() => expect(screen.getByTestId('role')).toHaveTextContent('admin'));
     expect(mocks.from).toHaveBeenCalledWith('admin_user_permissions');
-    expect(mocks.select).toHaveBeenCalledWith('user_id, email, role, is_active, status');
+    expect(mocks.select).toHaveBeenCalledWith('user_id, role, is_active, status');
     expect(mocks.eq).toHaveBeenCalledWith('user_id', authenticatedUser.id);
-    expect(mocks.eq).toHaveBeenCalledWith('is_active', true);
-    expect(mocks.eq).toHaveBeenCalledWith('status', 'active');
+    expect(mocks.eq.mock.calls.every((call) =>
+      call.length === 2 && call[0] === 'user_id'
+    )).toBe(true);
   });
 
   it('reports query errors separately from an account without permission', async () => {
@@ -125,7 +126,7 @@ describe('admin authorization context', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Emit sign in' }));
 
     await waitFor(() => expect(screen.getByTestId('role-error')).toHaveTextContent(
-      'Não foi possível verificar as permissões: permission denied',
+      'Não foi possível verificar as permissões: A autenticação foi concluída, mas não foi possível consultar a autorização no banco: permission denied',
     ));
     expect(screen.getByTestId('role')).toHaveTextContent('none');
   });
@@ -134,15 +135,19 @@ describe('admin authorization context', () => {
     let finishPermissionQuery: ((result: {
       data: {
         user_id: string;
-        email: string;
         role: string;
         is_active: boolean;
         status: string;
       };
       error: null;
     }) => void) | undefined;
+    const confirmedAdmin = {
+      ...authenticatedUser,
+      email_confirmed_at: '2026-10-29T12:00:00.000Z',
+      app_metadata: { role: 'admin' },
+    };
     mocks.signInWithPassword.mockResolvedValue({
-      data: { user: authenticatedUser },
+      data: { user: confirmedAdmin, session: { user: confirmedAdmin } },
       error: null,
     });
     mocks.maybeSingle.mockImplementation(() => new Promise((resolve) => {
@@ -156,14 +161,53 @@ describe('admin authorization context', () => {
     expect(document.body.dataset.signInResult).toBeUndefined();
     finishPermissionQuery?.({
       data: {
-        user_id: authenticatedUser.id,
-        email: 'owner@example.com',
+        user_id: confirmedAdmin.id,
         role: 'admin',
         is_active: true,
         status: 'active',
       },
       error: null,
     });
-    await waitFor(() => expect(document.body.dataset.signInResult).toBe('ok:admin'));
+    await waitFor(() => expect(document.body.dataset.signInResult).toBe('ok:admin:none'));
+  });
+
+  it('distinguishes a missing profile from a profile without active panel permission', async () => {
+    mocks.maybeSingle.mockResolvedValue({ data: null, error: null });
+    mocks.signInWithPassword.mockResolvedValue({
+      data: { user: authenticatedUser, session: { user: authenticatedUser } },
+      error: null,
+    });
+    renderProvider();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Sign in' }));
+
+    await waitFor(() => expect(document.body.dataset.signInResult).toBe('ok:none:missing-profile'));
+    expect(screen.getByTestId('permission-issue')).toHaveTextContent('missing-profile');
+  });
+
+  it('does not trust an admin claim without a corresponding database permission', async () => {
+    mocks.signInWithPassword.mockResolvedValue({
+      data: {
+        user: { ...authenticatedUser, app_metadata: { role: 'admin' }, user_metadata: { role: 'admin' } },
+        session: {
+          user: { ...authenticatedUser, app_metadata: { role: 'admin' }, user_metadata: { role: 'admin' } },
+        },
+      },
+      error: null,
+    });
+    mocks.maybeSingle.mockResolvedValue({
+      data: {
+        user_id: authenticatedUser.id,
+        role: 'admin',
+        is_active: false,
+        status: 'inactive',
+      },
+      error: null,
+    });
+    renderProvider();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Sign in' }));
+
+    await waitFor(() => expect(document.body.dataset.signInResult).toBe('ok:none:unauthorized'));
   });
 });

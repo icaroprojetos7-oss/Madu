@@ -113,7 +113,7 @@ create table if not exists public.store_settings (
 create table if not exists public.admin_user_permissions (
   user_id uuid primary key references auth.users (id) on delete cascade,
   email text,
-  role text not null check (role in ('admin', 'operator')),
+  role text not null check (role = 'admin'),
   is_active boolean not null default true,
   status text not null default 'active',
   created_at timestamptz not null default now(),
@@ -145,6 +145,10 @@ create schema if not exists private;
 revoke all on schema private from public, anon, authenticated;
 grant usage on schema private to authenticated, service_role;
 
+drop trigger if exists madu_grant_named_admin_on_user_insert on auth.users;
+drop trigger if exists madu_grant_named_admin_on_email_confirmation on auth.users;
+drop function if exists private.grant_admin_to_named_verified_emails();
+
 create or replace function private.is_store_admin()
 returns boolean
 language sql
@@ -171,7 +175,7 @@ as $$
   select exists (
     select 1 from public.admin_user_permissions
     where user_id = (select auth.uid())
-      and role in ('admin', 'operator')
+      and role = 'admin'
       and is_active = true
       and status = 'active'
   );
@@ -206,7 +210,7 @@ begin
     raise exception 'Administrator permission required' using errcode = '42501';
   end if;
 
-  if p_user_id is null or (p_role is not null and p_role not in ('admin', 'operator')) then
+  if p_user_id is null or (p_role is not null and p_role <> 'admin') then
     raise exception 'Invalid user role change' using errcode = '22023';
   end if;
 

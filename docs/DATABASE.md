@@ -10,17 +10,17 @@ O schema e as migrations criam as estruturas abaixo sem apagar dados existentes:
 - `orders` e `order_items` — estruturas futuras; o checkout atual envia o cliente ao WhatsApp e não grava pedidos.
 - `inventory_movements` — estrutura futura; o app lê somente o saldo atual em `products.stock`.
 - `store_settings` — configurações persistidas na linha `id = 'main'`; o WhatsApp fica em `whatsapp_number`, junto de `store_name` e `instagram_url`.
-- `admin_user_permissions` — perfil `admin` ou `operator` vinculado ao `user_id` Auth e ao e-mail normalizado; acesso exige `is_active = true` e `status = 'active'`.
+- `admin_user_permissions` — perfil `admin` vinculado ao `user_id` Auth; o e-mail é informativo. Acesso exige `is_active = true` e `status = 'active'`.
 
 Imagens são enviadas ao bucket público `product-images`. `products.image` armazena a URL pública, não base64. O limite do app e do bucket é 10 MB por arquivo, além do limite global do projeto.
 
 ## Autorização e RLS
 
-RLS fica habilitado nas tabelas do schema exposto. Produtos ativos e o telefone comercial são públicos. Administradores e operadores autenticados podem gerenciar produtos; somente administradores podem alterar configurações, gerenciar usuários e excluir objetos do Storage. Cada usuário autenticado só pode ler a própria linha de `admin_user_permissions`.
+RLS fica habilitado nas tabelas do schema exposto. Produtos ativos e o telefone comercial são públicos. Administradores ativos podem gerenciar produtos, configurações e usuários, além de excluir objetos do Storage. Cada usuário autenticado só pode ler a própria linha de `admin_user_permissions`.
 
-As policies consultam helpers de autorização em um schema `private` não exposto à Data API. A mutação de perfis passa por uma função pública `SECURITY INVOKER` acessível apenas a `service_role`, que delega a um helper privado `SECURITY DEFINER` e valida novamente o administrador solicitante. A função serializa mudanças de perfil e bloqueia a remoção/rebaixamento do último administrador.
+As policies consultam helpers de autorização em um schema `private` não exposto à Data API. A revogação passa por uma função pública `SECURITY INVOKER` acessível apenas a `service_role`, que delega a um helper privado `SECURITY DEFINER` e valida novamente o administrador solicitante. A função serializa mudanças e bloqueia a revogação do último administrador.
 
-A Edge Function `admin-users` verifica o JWT com Auth e consulta o perfil persistido, incluindo identidade, papel e estado ativo, antes de chamar a Admin Auth API. A chave de serviço nunca é enviada ao navegador. A migration `20261029234551_admin_permissions_activation_and_email.sql` adiciona e preenche esses campos, e atualiza os helpers RLS para ignorar permissões inativas.
+A Edge Function `admin-users` verifica o JWT com Auth e consulta o perfil persistido por `user_id`, papel e estado ativo antes de listar ou revogar acessos. A chave de serviço nunca é enviada ao navegador. A migration `20261029234551_admin_permissions_activation_and_email.sql` adiciona e preenche os campos de estado, e atualiza os helpers RLS para ignorar permissões inativas. A migration `20261030112352_backfill_trusted_auth_admin_permissions.sql` sincroniza admins previamente confiáveis em `raw_app_meta_data` somente quando não há perfil, preserva registros existentes e remove a concessão automática baseada em endereços fixos. A migration `20261030115848_make_existing_panel_users_admin_only.sql` converte perfis de painel existentes para `admin`, preserva estados ativos/inativos e remove o papel legado `operator`; contas Auth sem perfil de painel não são promovidas. `user_metadata` não é fonte de autorização.
 
 ## Execução segura
 

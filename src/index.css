@@ -16,15 +16,28 @@
 
 html {
   scroll-behavior: smooth;
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
 }
 
 body {
   margin: 0;
+  overflow-x: clip;
   min-width: 320px;
   min-height: 100vh;
+  min-height: 100svh;
+  min-height: 100dvh;
   background:
     radial-gradient(circle at top, rgba(216, 180, 199, 0.28), transparent 40%),
     #f9eff4;
+  -webkit-tap-highlight-color: transparent;
+  overscroll-behavior-y: none;
+}
+
+#root {
+  min-height: 100vh;
+  min-height: 100svh;
+  min-height: 100dvh;
 }
 
 a {
@@ -32,12 +45,58 @@ a {
 }
 
 button,
+a[href] {
+  touch-action: manipulation;
+}
+
+button:focus-visible,
+a[href]:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible {
+  outline: 3px solid #8b5e7c;
+  outline-offset: 2px;
+}
+
+button,
 input,
-select {
+select,
+textarea {
   font: inherit;
 }
 
-img {
+button,
+input,
+select,
+textarea {
+  font-size: 16px;
+}
+
+input,
+select,
+textarea {
+  min-height: 44px;
+}
+
+img,
+svg,
+video {
   display: block;
   max-width: 100%;
+  height: auto;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }

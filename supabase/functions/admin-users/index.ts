@@ -4,7 +4,7 @@ import {
 } from 'npm:@supabase/supabase-js@2.118.0';
 import { corsHeaders } from 'npm:@supabase/supabase-js@2.118.0/cors';
 
-type StoreRole = 'admin' | 'operator';
+type StoreRole = 'admin';
 
 type Database = {
   public: {
@@ -78,25 +78,6 @@ function readAllowedOrigins() {
     .split(',')
     .map((origin) => origin.trim())
     .filter(Boolean);
-}
-
-async function findUserByEmail(adminClient: AdminClient, email: string) {
-  const perPage = 1000;
-  for (let page = 1;; page += 1) {
-    const { data, error } = await adminClient.auth.admin.listUsers({
-      page,
-      perPage,
-    });
-    if (error) {
-      throw new Error(`Não foi possível procurar a conta: ${error.message}`);
-    }
-
-    const found = data.users.find((user) =>
-      user.email?.trim().toLowerCase() === email.trim().toLowerCase()
-    );
-    if (found) return found;
-    if (data.users.length < perPage) return null;
-  }
 }
 
 async function loadManagedUsers(adminClient: AdminClient) {
@@ -206,12 +187,8 @@ Deno.serve(async (request) => {
       origin,
     );
   }
-  const callerEmail = authData.user.email?.trim().toLowerCase();
-  const permissionEmail = callerPermission?.email?.trim().toLowerCase();
   if (
     callerPermission?.user_id !== authData.user.id ||
-    !callerEmail ||
-    permissionEmail !== callerEmail ||
     callerPermission.is_active !== true ||
     callerPermission.status !== 'active' ||
     callerPermission.role !== 'admin'
@@ -234,8 +211,6 @@ Deno.serve(async (request) => {
 
     let payload: {
       action?: string;
-      email?: string;
-      role?: unknown;
       userId?: string;
     } = {};
     try {
@@ -252,79 +227,8 @@ Deno.serve(async (request) => {
       );
     }
 
-    if (payload.action === 'grant') {
-      const email = payload.email?.trim().toLowerCase();
-      const role = payload.role;
-      if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-        return jsonResponse(
-          { error: 'Informe um endereço de e-mail válido.' },
-          400,
-          origin,
-        );
-      }
-      if (role !== 'admin' && role !== 'operator') {
-        return jsonResponse(
-          { error: 'Selecione um perfil válido.' },
-          400,
-          origin,
-        );
-      }
-
-      let account = await findUserByEmail(adminClient, email);
-      let invited = false;
-      if (!account) {
-        const { data, error } = await adminClient.auth.admin.inviteUserByEmail(
-          email,
-        );
-        if (error || !data.user) {
-          return jsonResponse(
-            {
-              error: `Não foi possível enviar o convite: ${
-                error?.message ?? 'usuário não retornado.'
-              }`,
-            },
-            400,
-            origin,
-          );
-        }
-        account = data.user;
-        invited = true;
-      }
-
-      const { error: roleError } = await adminClient.rpc(
-        'admin_set_user_role',
-        {
-          p_actor_user_id: authData.user.id,
-          p_user_id: account.id,
-          p_role: role,
-        },
-      );
-      if (roleError) {
-        console.error(
-          'A conta foi localizada, mas a permissão não foi gravada.',
-          roleError,
-        );
-        return jsonResponse(
-          {
-            error: invited
-              ? `O convite foi enviado, mas a permissão não foi gravada: ${roleError.message}`
-              : `Não foi possível conceder a permissão: ${roleError.message}`,
-          },
-          409,
-          origin,
-        );
-      }
-
-      return jsonResponse(
-        { user: userSummary(account, role), invited },
-        200,
-        origin,
-      );
-    }
-
-    if (payload.action === 'set-role') {
+    if (payload.action === 'revoke') {
       const userId = payload.userId;
-      const role = payload.role;
       if (
         !userId ||
         !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
@@ -337,25 +241,12 @@ Deno.serve(async (request) => {
           origin,
         );
       }
-      if (role !== null && role !== 'admin' && role !== 'operator') {
-        return jsonResponse(
-          { error: 'Selecione um perfil válido ou revogue o acesso.' },
-          400,
-          origin,
-        );
-      }
-
-      const { data, error } = await adminClient.auth.admin.getUserById(userId);
-      if (error || !data.user) {
-        return jsonResponse({ error: 'Usuário não encontrado.' }, 404, origin);
-      }
-
       const { error: roleError } = await adminClient.rpc(
         'admin_set_user_role',
         {
           p_actor_user_id: authData.user.id,
           p_user_id: userId,
-          p_role: role,
+          p_role: null,
         },
       );
       if (roleError) {
@@ -367,14 +258,7 @@ Deno.serve(async (request) => {
           origin,
         );
       }
-      return jsonResponse(
-        {
-          user: role ? userSummary(data.user, role) : null,
-          revoked: role === null,
-        },
-        200,
-        origin,
-      );
+      return jsonResponse({ revoked: true }, 200, origin);
     }
 
     return jsonResponse({ error: 'Ação não reconhecida.' }, 400, origin);

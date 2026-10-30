@@ -20,13 +20,13 @@ Na auditoria de 29/10/2026, `public.products` e o bucket público `product-image
    npx supabase db push
    ```
 
-   As migrations criam `store_settings` e `admin_user_permissions`, preservam as contas que já têm a claim administrativa, sincronizam o e-mail Auth em minúsculas, definem `is_active`/`status` para permissões existentes, atualizam as policies, aplicam `products.is_active` e elevam o limite do bucket para 10 MB. A migration mais recente concede `admin` a `iIcarohenrrique99@gmail.com`, desde que a conta Auth já exista; se não existir, a migration falha com uma mensagem explícita. As migrations não apagam registros nem removem imagens antigas.
+   As migrations criam `store_settings` e `admin_user_permissions`, preservam as contas que já têm a claim administrativa, sincronizam o e-mail Auth em minúsculas, definem `is_active`/`status` para permissões existentes, atualizam as policies, aplicam `products.is_active` e elevam o limite do bucket para 10 MB. A migration `20261030112352_backfill_trusted_auth_admin_permissions.sql` traz para a tabela os usuários com `raw_app_meta_data.role = 'admin'` que ainda não têm perfil, sem sobrescrever permissões existentes, e remove os gatilhos de concessão por endereços fixos. Ela não apaga permissões existentes. Aplique-a no projeto certo para que admins já reconhecidos pelo Supabase Auth tenham o perfil necessário às policies RLS.
 
 4. Em staging, revise as policies resultantes e execute `npx supabase db advisors --linked --type security` antes de liberar o painel.
 5. Verifique no painel Supabase que o limite global de upload do projeto permite pelo menos 10 MB. O limite do bucket, isoladamente, não supera um limite global menor.
-6. Habilite o provedor de e-mail e mantenha o cadastro público desabilitado se a loja não aceitar registros abertos.
+6. Habilite o provedor de e-mail e mantenha o cadastro público desabilitado se a loja não aceitar registros abertos. Nenhum endereço recebe privilégios automaticamente; novos papéis são atribuídos por um administrador autenticado ou pelo procedimento administrativo confiável descrito abaixo.
 
-Se a conta `iIcarohenrrique99@gmail.com` ainda não existir em Auth, crie-a antes de aplicar as migrations. A migration de permissões a promove a administradora inicial. Para outro bootstrap excepcional, use o SQL Editor confiável do Supabase e substitua pelo e-mail verificado:
+Para conceder acesso a outros usuários, use **Painel → Usuários e permissões** após autenticar como administrador. Para um bootstrap excepcional, use o SQL Editor confiável do Supabase e substitua pelo e-mail verificado:
 
 ```sql
 do $$
@@ -61,7 +61,7 @@ end
 $$;
 ```
 
-O SQL Editor é uma superfície administrativa confiável; não exponha essas instruções ou credenciais de serviço no cliente. Encerre e renove a sessão para que Auth reflita a claim atualizada. Depois, use **Usuários e permissões** no painel para convidar operadores ou outros administradores. O banco bloqueia a remoção/rebaixamento concorrente do último administrador. A revogação atualiza a fonte de autorização no banco imediatamente; sessões abertas podem precisar de atualização para refletir a mudança na interface.
+O SQL Editor é uma superfície administrativa confiável; não exponha essas instruções ou credenciais de serviço no cliente. Encerre e renove a sessão para que Auth reflita a claim atualizada. A tela **Usuários e permissões** permite consultar e revogar acessos, mas não concedê-los. Novos administradores devem ser adicionados somente por procedimento administrativo confiável no servidor/banco. A migration `20261030115848_make_existing_panel_users_admin_only.sql` promove os perfis de painel existentes, mantendo estados inativos, sem alterar contas Auth sem perfil. O banco bloqueia a revogação concorrente do último administrador; sessões abertas podem precisar de atualização para refletir a mudança na interface.
 
 Se a API informar que `public.store_settings` ou alguma coluna não existe no cache, confirme no SQL Editor que a tabela usa `id`, `store_name`, `whatsapp_number`, `instagram_url` e `updated_at`, com o registro principal `id = 'main'`. A migration de settings usa esse formato, aplica policies de leitura pública e escrita somente por administradores ativos e envia `NOTIFY pgrst, 'reload schema'`. Publique também a versão atualizada do frontend para substituir versões antigas que consultavam o formato anterior de configurações.
 
@@ -78,21 +78,25 @@ npx supabase functions deploy admin-users
 
 Para desenvolvimento local, permita também `http://localhost:5173`. Origins são separados por vírgula e não incluem caminho. Em produção, configure o domínio real; a função não aceita origins arbitrários.
 
+**Painel → Usuários e permissões** lista administradores ativos e permite revogar o acesso após confirmação. A Edge Function não oferece convite ou concessão de acesso. Somente uma sessão de administrador pode chamar a função, e o banco impede revogar o último administrador.
+
+Para a gestão funcionar na publicação estática, configure `VITE_SUPABASE_URL` e `VITE_SUPABASE_PUBLISHABLE_KEY` (ou `VITE_SUPABASE_ANON_KEY`) no ambiente de build do Firebase Hosting e publique novamente o frontend. `SUPABASE_SERVICE_ROLE_KEY` e `SUPABASE_URL`/`SUPABASE_ANON_KEY` da Edge Function permanecem exclusivamente nos secrets/ambiente do Supabase. Configurar somente o Firebase Hosting não configura a autenticação nem a função.
+
 ## WhatsApp comercial
 
 Em **Administração → Configurações**, informe o número comercial com código do país e salve. O número fica em `public.store_settings.whatsapp_number` na linha `id = 'main'`; vitrine, rodapé e carrinho leem essa mesma configuração. O `VITE_WHATSAPP_NUMBER` é apenas um fallback opcional se a linha ainda não existir. Não há número fictício padrão; sem valor confirmado, os links de contato/checkout não são gerados.
 
 ## Produtos e Storage
 
-- A vitrine consulta somente produtos com `is_active = true`; administradores e operadores autenticados podem consultar todos e gerenciar o catálogo.
-- Administradores e operadores podem enviar ou atualizar imagens. Exclusão de objetos continua restrita a administradores; o app não apaga arquivos na substituição.
+- A vitrine consulta somente produtos com `is_active = true`; administradores autenticados podem consultar todos e gerenciar o catálogo.
+- Administradores ativos podem enviar, atualizar e excluir imagens. O app não apaga arquivos na substituição.
 - O bucket público `product-images` permite que qualquer visitante baixe uma imagem ao conhecer sua URL. Listagem e exclusão continuam protegidas.
 - O formulário aceita JPG, PNG e WebP até 10 MB. A imagem é enviada pelo único cliente Supabase do app e sua URL pública só é persistida no produto depois da confirmação do banco.
 - Um upload concluído antes de uma falha ao salvar o produto pode deixar um objeto órfão. Ele não é removido automaticamente; revise o uso do arquivo antes de qualquer limpeza manual.
 
 ## RLS e limites funcionais
 
-A autorização usa `admin_user_permissions`, não apenas claims que podem permanecer em um token antigo. Policies antigas conhecidas de produtos e Storage são removidas/substituídas pela migration. Antes de aplicar manualmente sobre um projeto com policies customizadas, revise `pg_policies`: policies permissivas são combinadas por `OR`; uma policy legada pode continuar concedendo acesso. Não desative RLS.
+A autorização usa `admin_user_permissions` vinculada ao `user_id` Auth, não e-mail e nem `user_metadata`. `raw_app_meta_data.role = 'admin'` é usado somente pela migration de backfill para não perder admins já confiáveis; perfis existentes prevalecem e são avaliados por estado ativo. Policies antigas conhecidas de produtos e Storage são removidas/substituídas pela migration. Antes de aplicar manualmente sobre um projeto com policies customizadas, revise `pg_policies`: policies permissivas são combinadas por `OR`; uma policy legada pode continuar concedendo acesso. Não desative RLS.
 
 Se o login autenticar mas mostrar que a conta não tem autorização, execute esta consulta no SQL Editor do projeto correto, substituindo o e-mail pelo usado no login:
 
@@ -111,7 +115,7 @@ left join public.admin_user_permissions as permissions
 where lower(users.email) = lower('email-usado-no-login@example.com');
 ```
 
-Confirme que `permission_user_id` corresponde ao `auth_user_id`, que `permission_email` corresponde ao e-mail Auth sem diferença de maiúsculas/minúsculas, que `role` é `admin` ou `operator`, `is_active` é `true` e `status` é `active`. Se a linha não existir ou estiver inativa, um administrador existente deve conceder/reativar o perfil pelo painel. Se ainda não houver nenhum administrador autorizado, use o procedimento de bootstrap explícito acima para uma única conta verificada. Após corrigir a permissão no banco, encerre a sessão e entre novamente. Não habilite acesso automaticamente para todos os usuários Auth.
+Confirme que `permission_user_id` corresponde ao `auth_user_id`, que `role` é `admin`, `is_active` é `true` e `status` é `active`; o e-mail salvo no perfil não é usado para autorizar. Se a linha não existir mas `raw_app_meta_data.role` for `admin`, aplique a migration de backfill. Se a linha não existir ou estiver inativa por outro motivo, siga o procedimento de bootstrap confiável acima para uma conta verificada. Após corrigir a permissão no banco, encerre a sessão e entre novamente. Não habilite acesso automaticamente para todas as contas Auth.
 
 Categorias administrativas, clientes, pedidos e financeiro ainda não têm integração funcional no app. O checkout envia um resumo real do carrinho ao WhatsApp, mas não grava um pedido, reserva estoque nem processa/confirmar pagamento.
 

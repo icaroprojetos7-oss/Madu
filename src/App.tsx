@@ -1,6 +1,6 @@
 import { Link, Navigate, NavLink, Route, Routes, useLocation, useNavigate, useParams } from 'react-router-dom';
 import { ArrowRight, Heart, Menu, MessageCircleMore, Minus, Pencil, Plus, Search, Settings, ShoppingBag, Sparkles, Star, Trash2, Truck } from 'lucide-react';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from 'react';
 import type { FormEvent } from 'react';
 import { products, categories } from './data/mockProducts';
 import { buildWhatsAppMessage, buildWhatsAppUrl, formatCurrency, getCartSummary } from './lib/commerce';
@@ -24,16 +24,22 @@ import {
 import { useCart } from './context/CartContext';
 import { MaduSidebar } from './components/Navigation/MaduSidebar';
 import type { AdminPageId } from './components/Navigation/MaduSidebar';
-import { AdminLoginPage } from './pages/AdminLoginPage';
 import { useAdminAuth } from './context/AdminAuthContext';
 import { AdminRouteGuard } from './components/Navigation/AdminRouteGuard';
 import { ProductImageField } from './components/Admin/ProductImageField';
 import maduLogo from './assets/madu-logo-transparent.png';
 import { useStoreSettings } from './context/StoreSettingsContext';
-import { UserManagement } from './components/Admin/UserManagement';
 import { normalizeWhatsAppNumber } from './lib/storeSettings';
+import { OfflineNotice, PwaInstallButton, StoreBottomNavigation, VersionUpdateNotice } from './components/PWA/PwaControls';
 
 type ProductView = (typeof products)[number];
+
+const AdminLoginPage = lazy(() =>
+  import('./pages/AdminLoginPage').then((module) => ({ default: module.AdminLoginPage })),
+);
+const UserManagement = lazy(() =>
+  import('./components/Admin/UserManagement').then((module) => ({ default: module.UserManagement })),
+);
 
 function useStorefrontProducts(includeInactive = false) {
   const [catalog, setCatalog] = useState<ProductView[]>(
@@ -86,26 +92,44 @@ function useStorefrontProducts(includeInactive = false) {
 }
 
 function App() {
+  const location = useLocation();
+  const isAdminRoute = location.pathname.startsWith('/admin');
+
   return (
-    <div className="min-h-screen bg-[#f9eff4] text-stone-800">
+    <div className={`min-h-screen bg-[#f9eff4] text-stone-800 ${isAdminRoute ? '' : 'pb-[calc(5rem+env(safe-area-inset-bottom))] md:pb-0'}`}>
       <Routes>
         <Route path="/" element={<HomePage />} />
         <Route path="/produtos" element={<CatalogPage />} />
         <Route path="/produto/:slug" element={<ProductPage />} />
         <Route path="/carrinho" element={<CartPage />} />
-        <Route path="/admin/login" element={<AdminLoginPage />} />
+        <Route path="/admin/login" element={<Suspense fallback={<RouteLoadingFallback />}><AdminLoginPage /></Suspense>} />
         <Route path="/admin" element={<AdminRouteGuard><AdminPage /></AdminRouteGuard>} />
         <Route path="/admin/produtos" element={<AdminRouteGuard><AdminPage /></AdminRouteGuard>} />
         <Route path="/admin/:module" element={<AdminRouteGuard><AdminModulePage /></AdminRouteGuard>} />
         <Route path="/admin/*" element={<AdminRouteGuard><AdminModulePage /></AdminRouteGuard>} />
         <Route path="*" element={<HomePage />} />
       </Routes>
+      <StoreBottomNavigation />
+      <OfflineNotice />
+      <VersionUpdateNotice />
     </div>
   );
 }
 
+function RouteLoadingFallback() {
+  return (
+    <main aria-busy="true" aria-label="Carregando tela" className="flex min-h-[50svh] items-center justify-center px-4">
+      <div className="w-full max-w-sm animate-pulse space-y-4 rounded-3xl bg-white p-6">
+        <div className="h-6 w-1/2 rounded bg-[#f8e9ef]" />
+        <div className="h-4 w-full rounded bg-[#f8e9ef]" />
+        <div className="h-11 w-full rounded-full bg-[#f8e9ef]" />
+      </div>
+    </main>
+  );
+}
+
 function HomePage() {
-  const { catalog, syncStatus } = useStorefrontProducts();
+  const { catalog, syncStatus, isLoading } = useStorefrontProducts();
   const { whatsappNumber, loading: settingsLoading } = useStoreSettings();
   const featured = catalog.filter((product) => product.featured);
 
@@ -150,7 +174,8 @@ function HomePage() {
               <img
                 src="https://images.unsplash.com/photo-1617038220319-276d3cfab638?auto=format&fit=crop&w=900&q=80"
                 alt="Semijoias Madu"
-                className="relative h-[420px] w-full rounded-[2rem] object-cover shadow-soft"
+                fetchPriority="high"
+                className="relative h-[min(420px,55svh)] min-h-[260px] w-full rounded-[2rem] object-cover shadow-soft"
               />
             </div>
           </div>
@@ -176,9 +201,11 @@ function HomePage() {
             <Link to="/produtos" className="text-sm font-medium text-[#8B5E7C]">Ver catálogo</Link>
           </div>
           <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
-            {featured.map((product) => (
-              <ProductCard key={product.id} product={product} />
-            ))}
+            {isLoading
+              ? Array.from({ length: 3 }, (_, index) => <ProductCardSkeleton key={index} />)
+              : featured.length > 0
+                ? featured.map((product) => <ProductCard key={product.id} product={product} />)
+                : <p className="col-span-full rounded-2xl bg-white p-5 text-sm text-[#5d4454]">Nenhum produto em destaque disponível no momento.</p>}
           </div>
         </section>
 
@@ -202,7 +229,7 @@ function HomePage() {
 }
 
 function CatalogPage() {
-  const { catalog } = useStorefrontProducts();
+  const { catalog, isLoading, loadError } = useStorefrontProducts();
   const [search, setSearch] = useState('');
   const [category, setCategory] = useState('Todas');
   const [sort, setSort] = useState('news');
@@ -241,14 +268,14 @@ function CatalogPage() {
               className="w-full rounded-full border border-[#efd7e7] bg-[#fffafc] py-3 pl-10 pr-4 text-sm outline-none ring-0 placeholder:text-[#9c7d8d]"
             />
           </div>
-          <div className="flex gap-2">
-            <select value={category} onChange={(event) => setCategory(event.target.value)} className="rounded-full border border-[#efd7e7] bg-[#fffafc] px-3 py-2 text-sm text-[#3d2b35] outline-none">
+          <div className="grid min-w-0 grid-cols-2 gap-2 sm:flex">
+            <select value={category} onChange={(event) => setCategory(event.target.value)} className="min-w-0 w-full rounded-full border border-[#efd7e7] bg-[#fffafc] px-3 py-2 text-sm text-[#3d2b35] outline-none">
               <option value="Todas">Todas</option>
               {categories.map((item) => (
                 <option key={item} value={item}>{item}</option>
               ))}
             </select>
-            <select value={sort} onChange={(event) => setSort(event.target.value)} className="rounded-full border border-[#efd7e7] bg-[#fffafc] px-3 py-2 text-sm text-[#3d2b35] outline-none">
+            <select value={sort} onChange={(event) => setSort(event.target.value)} className="min-w-0 w-full rounded-full border border-[#efd7e7] bg-[#fffafc] px-3 py-2 text-sm text-[#3d2b35] outline-none">
               <option value="news">Novidades</option>
               <option value="low">Menor preço</option>
               <option value="high">Maior preço</option>
@@ -257,7 +284,13 @@ function CatalogPage() {
         </div>
 
         <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
-          {filteredProducts.length > 0 ? (
+          {isLoading ? (
+            Array.from({ length: 6 }, (_, index) => <ProductCardSkeleton key={index} />)
+          ) : loadError ? (
+            <p role="alert" className="col-span-full rounded-3xl border border-rose-200 bg-white p-8 text-center text-[#5d4454]">
+              Não foi possível carregar o catálogo. Verifique sua conexão e tente novamente.
+            </p>
+          ) : filteredProducts.length > 0 ? (
             filteredProducts.map((product) => <ProductCard key={product.id} product={product} />)
           ) : (
             <div className="col-span-full rounded-3xl border border-dashed border-[#d7b0c0] bg-white p-8 text-center text-[#5d4454]">
@@ -272,7 +305,7 @@ function CatalogPage() {
 }
 
 function ProductPage() {
-  const { catalog } = useStorefrontProducts();
+  const { catalog, isLoading, loadError } = useStorefrontProducts();
   const { slug } = useParams();
   const product = catalog.find((item) => item.slug === slug);
   const [selectedVariation, setSelectedVariation] = useState('');
@@ -286,13 +319,33 @@ function ProductPage() {
 
   const related = product ? catalog.filter((item) => item.id !== product.id).slice(0, 3) : [];
 
+  if (!product && isLoading) {
+    return (
+      <>
+        <Header />
+        <main aria-busy="true" aria-label="Carregando produto" className="mx-auto max-w-6xl px-4 py-8 sm:px-6 lg:px-8">
+          <div className="grid animate-pulse gap-8 rounded-[2rem] bg-white p-4 shadow-sm lg:grid-cols-2">
+            <div className="aspect-square rounded-[2rem] bg-[#f8e9ef]" />
+            <div className="space-y-4 py-8">
+              <div className="h-4 w-24 rounded bg-[#f8e9ef]" />
+              <div className="h-8 w-3/4 rounded bg-[#f8e9ef]" />
+              <div className="h-5 w-1/3 rounded bg-[#f8e9ef]" />
+              <div className="h-24 rounded bg-[#f8e9ef]" />
+            </div>
+          </div>
+        </main>
+        <Footer />
+      </>
+    );
+  }
+
   if (!product) {
     return (
       <>
         <Header />
         <main className="mx-auto max-w-6xl px-4 py-16 text-center text-[#5d4454] sm:px-6 lg:px-8">
           <h1 className="text-2xl font-semibold text-[#2d1d25]">Produto indisponível</h1>
-          <p className="mt-3">Este produto não está no catálogo atual.</p>
+          <p className="mt-3">{loadError ? 'Não foi possível consultar o catálogo. Verifique sua conexão e tente novamente.' : 'Este produto não está no catálogo atual.'}</p>
           <Link to="/produtos" className="mt-6 inline-flex min-h-11 items-center rounded-full bg-[#8B5E7C] px-5 text-sm font-medium text-white">
             Voltar aos produtos
           </Link>
@@ -308,7 +361,7 @@ function ProductPage() {
       <main className="mx-auto max-w-6xl px-4 pb-20 pt-4 sm:px-6 lg:px-8">
         <div className="grid gap-8 rounded-[2rem] bg-white p-4 shadow-sm lg:grid-cols-[1.1fr_0.9fr] lg:p-8">
           <div>
-            <img src={product.image} alt={product.name} className="h-[500px] w-full rounded-[2rem] object-cover" />
+            <img src={product.image} alt={product.name} fetchPriority="high" className="h-[min(500px,75svh)] w-full rounded-[2rem] object-cover" />
           </div>
 
           <div className="flex flex-col justify-center">
@@ -346,11 +399,11 @@ function ProductPage() {
 
             <div className="mt-6 flex items-center gap-3">
               <div className="flex items-center overflow-hidden rounded-full border border-[#efd7e7] bg-[#fffafc]">
-                <button type="button" onClick={() => setQuantity((value) => Math.max(1, value - 1))} className="p-3 text-[#8B5E7C]" aria-label="Diminuir quantidade">
+                <button type="button" onClick={() => setQuantity((value) => Math.max(1, value - 1))} className="inline-flex min-h-11 min-w-11 items-center justify-center p-3 text-[#8B5E7C]" aria-label="Diminuir quantidade">
                   <Minus size={16} />
                 </button>
                 <span className="min-w-10 text-center text-sm font-medium text-[#2d1d25]">{quantity}</span>
-                <button type="button" disabled={quantity >= product.stock} onClick={() => setQuantity((value) => Math.min(product.stock, value + 1))} className="p-3 text-[#8B5E7C] disabled:cursor-not-allowed disabled:opacity-40" aria-label="Aumentar quantidade">
+                <button type="button" disabled={quantity >= product.stock} onClick={() => setQuantity((value) => Math.min(product.stock, value + 1))} className="inline-flex min-h-11 min-w-11 items-center justify-center p-3 text-[#8B5E7C] disabled:cursor-not-allowed disabled:opacity-40" aria-label="Aumentar quantidade">
                   <Plus size={16} />
                 </button>
               </div>
@@ -450,7 +503,7 @@ function CartPage() {
             <div className="space-y-4">
               {cartItems.map((item) => (
                 <div key={`${item.id}-${item.variation ?? 'base'}`} className="grid gap-4 rounded-[2rem] border border-[#f1dfe9] bg-white p-4 shadow-sm sm:grid-cols-[120px_1fr]">
-                  <img src={item.image} alt={item.name} className="h-28 w-full rounded-2xl object-cover" />
+                  <img src={item.image} alt={item.name} loading="lazy" decoding="async" className="h-28 w-full rounded-2xl object-cover" />
                   <div className="flex flex-col justify-between gap-3">
                     <div className="flex items-start justify-between gap-3">
                       <div>
@@ -461,11 +514,11 @@ function CartPage() {
                     </div>
                     <div className="flex items-center justify-between gap-3">
                       <div className="flex items-center overflow-hidden rounded-full border border-[#efd7e7] bg-[#fffafc]">
-                        <button type="button" onClick={() => updateQuantity(item.id, item.variation, item.quantity - 1)} className="p-2 text-[#8B5E7C]" aria-label="Diminuir quantidade">
+                            <button type="button" onClick={() => updateQuantity(item.id, item.variation, item.quantity - 1)} className="inline-flex min-h-11 min-w-11 items-center justify-center p-2 text-[#8B5E7C]" aria-label="Diminuir quantidade">
                           <Minus size={14} />
                         </button>
                         <span className="min-w-8 text-center text-sm font-medium text-[#2d1d25]">{item.quantity}</span>
-                        <button type="button" disabled={item.availableStock !== undefined && item.quantity >= item.availableStock} onClick={() => updateQuantity(item.id, item.variation, item.quantity + 1)} className="p-2 text-[#8B5E7C] disabled:cursor-not-allowed disabled:opacity-40" aria-label="Aumentar quantidade">
+                        <button type="button" disabled={item.availableStock !== undefined && item.quantity >= item.availableStock} onClick={() => updateQuantity(item.id, item.variation, item.quantity + 1)} className="inline-flex min-h-11 min-w-11 items-center justify-center p-2 text-[#8B5E7C] disabled:cursor-not-allowed disabled:opacity-40" aria-label="Aumentar quantidade">
                           <Plus size={14} />
                         </button>
                       </div>
@@ -748,10 +801,6 @@ function AdminPage() {
   });
   const activeAdminPage: AdminPageId = location.pathname === '/admin/produtos' ? 'produtos' : 'dashboard';
 
-  if (role === 'operator' && location.pathname === '/admin') {
-    return <Navigate to="/admin/produtos" replace />;
-  }
-
   async function handleAdminLogout() {
     if (!confirmDiscardProductForm()) return;
     const error = await signOut();
@@ -767,7 +816,6 @@ function AdminPage() {
       <div className="flex min-h-screen">
         <MaduSidebar
           activePage={activeAdminPage}
-          userRole={role ?? 'operator'}
           mobileOpen={mobileMenuOpen}
           onLogout={() => void handleAdminLogout()}
           onClose={() => setMobileMenuOpen(false)}
@@ -776,30 +824,30 @@ function AdminPage() {
             navigate(adminPaths[page]);
           }}
         />
-        <main className="min-w-0 flex-1 bg-[#fffafc] p-4 sm:p-7 lg:p-9">
-            <header className="mb-6 flex flex-col gap-4 border-b border-[#f1dfe9] pb-4 sm:flex-row sm:items-center sm:justify-between">
-              <div>
+        <main className="min-w-0 flex-1 bg-[#fffafc] px-3 pb-[calc(1.25rem+env(safe-area-inset-bottom))] pt-3 sm:p-7 lg:p-9">
+            <header className="mb-5 flex min-w-0 flex-col gap-3 border-b border-[#f1dfe9] pb-4 sm:mb-6 sm:flex-row sm:items-center sm:justify-between">
+              <div className="min-w-0">
                 <button
                   type="button"
                   aria-label="Abrir menu"
                   onClick={() => setMobileMenuOpen(true)}
-                  className="mb-4 rounded-xl border border-[#efd7e7] bg-white p-2 text-[#8B5E7C] md:hidden"
+                  className="mb-2 inline-flex min-h-11 min-w-11 items-center justify-center rounded-xl border border-[#efd7e7] bg-white text-[#8B5E7C] md:hidden"
                 >
                   <Menu size={18} />
                 </button>
                 <p className="text-xs uppercase tracking-[0.24em] text-[#8B5E7C]">{isAdmin ? 'Dashboard' : 'Catálogo'}</p>
-                <h2 className="mt-2 text-2xl font-semibold">{isAdmin ? 'Painel da loja' : 'Produtos'}</h2>
+                <h2 className="mt-1 break-words text-xl font-semibold sm:text-2xl">{isAdmin ? 'Painel da loja' : 'Produtos'}</h2>
               </div>
 
-              <div className="flex items-center gap-3">
-                <div className="relative w-full lg:w-72">
+              <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-2 sm:flex sm:gap-3">
+                <div className="relative min-w-0 sm:w-56 lg:w-72">
                   <Search className="pointer-events-none absolute left-3 top-3 text-[#8B5E7C]" size={16} />
                   <input
                     type="text"
                     value={searchQuery}
                     onChange={(event) => setSearchQuery(event.target.value)}
                     placeholder="Buscar produto"
-                    className="w-full rounded-full border border-[#efd7e7] bg-white py-2.5 pl-9 pr-3 text-sm text-[#2d1d25] outline-none"
+                    className="min-h-11 w-full min-w-0 rounded-full border border-[#efd7e7] bg-white py-2.5 pl-9 pr-3 text-sm text-[#2d1d25] outline-none"
                   />
                 </div>
                 <Link
@@ -807,7 +855,7 @@ function AdminPage() {
                   onClick={(event) => {
                     if (!confirmDiscardProductForm()) event.preventDefault();
                   }}
-                  className="rounded-full bg-[#8B5E7C] px-4 py-2.5 text-center text-sm font-medium text-white shadow-sm"
+                  className="inline-flex min-h-11 items-center justify-center whitespace-nowrap rounded-full bg-[#8B5E7C] px-3 text-center text-xs font-medium text-white shadow-sm sm:px-4 sm:text-sm"
                 >
                   Ver loja
                 </Link>
@@ -875,17 +923,67 @@ function AdminPage() {
                   <a href="#cadastro-produto" className="flex items-center justify-between rounded-2xl border border-[#efd7e7] bg-[#fffafc] px-4 py-3 text-sm text-[#2d1d25]">
                     <span>Cadastrar produto</span><ArrowRight size={16} />
                   </a>
+                  <Link to="/admin/usuarios" className="flex min-h-11 items-center justify-between gap-3 rounded-2xl border border-[#efd7e7] bg-[#fffafc] px-4 py-3 text-sm text-[#2d1d25]">
+                    <span>Gerenciar administradores</span><ArrowRight size={16} />
+                  </Link>
                 </div>
               </div>
             </section>}
 
-            <section id="produtos" className="mt-6 grid gap-6 xl:grid-cols-[1.2fr_0.8fr]">
-              <div className="rounded-[1.75rem] border border-[#f1dfe9] bg-white p-5 shadow-sm">
+            <section id="produtos" className="mt-5 grid min-w-0 gap-4 xl:mt-6 xl:grid-cols-[1.2fr_0.8fr] xl:gap-6">
+              <div className="min-w-0 rounded-[1.75rem] border border-[#f1dfe9] bg-white p-3 shadow-sm sm:p-5">
                 <div className="mb-4 flex items-center justify-between">
                   <h3 className="text-lg font-semibold text-[#2d1d25]">Produtos do catálogo</h3>
                 </div>
 
-                <div className="overflow-x-auto rounded-2xl border border-[#f1dfe9]">
+                <div className="space-y-3 md:hidden">
+                  {visibleCatalog.map((product) => (
+                    <article key={product.id} className="rounded-2xl border border-[#f1dfe9] bg-[#fffafc] p-3">
+                      <div className="flex min-w-0 items-center gap-3">
+                        <img src={product.image} alt="" loading="lazy" decoding="async" className="h-14 w-14 shrink-0 rounded-xl object-cover" />
+                        <div className="min-w-0 flex-1">
+                          <h4 className="break-words text-sm font-semibold text-[#2d1d25]">{product.name}</h4>
+                          <p className="mt-1 truncate text-xs text-[#76506a]">{product.category}</p>
+                        </div>
+                        <span className="shrink-0 rounded-full bg-[#f8e9ef] px-2 py-1 text-[10px] text-[#76506a]">
+                          {product.is_active === false ? 'Oculto' : 'Ativo'}
+                        </span>
+                      </div>
+                      <div className="mt-3 grid grid-cols-2 gap-2 text-xs text-[#5d4454]">
+                        <p>Preço <span className="font-semibold text-[#2d1d25]">{formatCurrency(product.sale_price_cents ?? product.price_cents)}</span></p>
+                        <p>Estoque <span className="font-semibold text-[#2d1d25]">{product.stock}</span></p>
+                      </div>
+                      <div className="mt-3 flex flex-wrap gap-2 border-t border-[#f1dfe9] pt-3">
+                        <button
+                          type="button"
+                          disabled={isSavingProduct || Boolean(deletingProductId)}
+                          onClick={() => handleEditProduct(product)}
+                          className="inline-flex min-h-11 flex-1 items-center justify-center gap-2 rounded-full border border-[#efd7e7] px-3 text-xs font-medium text-[#76506a] disabled:opacity-60"
+                        >
+                          <Pencil size={14} /> Editar
+                        </button>
+                        {isAdmin && (
+                          <button
+                            type="button"
+                            disabled={isSavingProduct || Boolean(deletingProductId)}
+                            onClick={() => void handleDeleteProduct(product)}
+                            className="inline-flex min-h-11 flex-1 items-center justify-center gap-2 rounded-full border border-rose-200 px-3 text-xs font-medium text-rose-700 disabled:opacity-60"
+                          >
+                            <Trash2 size={14} />
+                            {deletingProductId === product.id ? 'Removendo...' : 'Remover'}
+                          </button>
+                        )}
+                      </div>
+                    </article>
+                  ))}
+                  {visibleCatalog.length === 0 && (
+                    <p className="rounded-2xl border border-dashed border-[#d7b0c0] p-5 text-center text-sm text-[#5d4454]">
+                      Nenhum produto corresponde à busca.
+                    </p>
+                  )}
+                </div>
+
+                <div role="region" aria-label="Tabela de produtos. Deslize horizontalmente para ver todos os dados." tabIndex={0} className="hidden overflow-x-auto rounded-2xl border border-[#f1dfe9] md:block">
                   <table className="min-w-full text-left text-sm">
                     <thead className="bg-[#fff5f9] text-[#5d4454]">
                       <tr>
@@ -902,7 +1000,7 @@ function AdminPage() {
                         <tr key={product.id} className="border-t border-[#f1dfe9]">
                           <td className="px-4 py-3">
                             <div className="flex items-center gap-3">
-                              <img src={product.image} alt={product.name} className="h-10 w-10 rounded-xl object-cover" />
+                              <img src={product.image} alt={product.name} loading="lazy" decoding="async" className="h-10 w-10 rounded-xl object-cover" />
                               <span className="font-medium text-[#2d1d25]">{product.name}</span>
                             </div>
                           </td>
@@ -976,7 +1074,7 @@ function AdminPage() {
                       Descrição
                       <textarea value={productForm.description} onChange={(event) => updateProductForm('description', event.target.value)} rows={3} className="mt-1 w-full rounded-2xl border border-[#efd7e7] bg-[#fffafc] px-3 py-2 text-[#2d1d25] outline-none" />
                     </label>
-                    <div className="grid grid-cols-2 gap-3">
+                    <div className="grid grid-cols-1 gap-3 min-[400px]:grid-cols-2">
                       <label className="block text-sm text-[#5d4454]">
                         Preço de venda *
                         <input required type="text" inputMode="decimal" placeholder="89,90" value={productForm.price} onChange={(event) => updateProductForm('price', event.target.value)} aria-invalid={Boolean(formErrors.price)} className="mt-1 w-full rounded-2xl border border-[#efd7e7] bg-[#fffafc] px-3 py-2 text-[#2d1d25] outline-none" />
@@ -1175,12 +1273,10 @@ function AdminModulePage() {
     usuarios: {
       id: 'usuarios',
       title: 'Usuários e permissões',
-      description: 'Convide operadores e gerencie os perfis administrativos da loja.',
+      description: 'Consulte os administradores autorizados da loja e revogue acessos quando necessário.',
     },
   };
   const currentModule = modulePages[module];
-
-  if (role === 'operator') return <Navigate to="/admin/produtos" replace />;
 
   async function handleLogout() {
     const error = await signOut();
@@ -1192,59 +1288,74 @@ function AdminModulePage() {
   }
 
   return (
-    <div className="min-h-screen bg-[#f9eff4] text-[#2d1d25]">
-      <div className="flex min-h-screen">
+    <div className="min-h-dvh bg-[#f9eff4] text-[#2d1d25]">
+      <div className="flex min-h-dvh">
         <MaduSidebar
           activePage={currentModule?.id ?? 'dashboard'}
-          userRole={role ?? 'operator'}
           mobileOpen={mobileMenuOpen}
           onClose={() => setMobileMenuOpen(false)}
           onLogout={() => void handleLogout()}
           onNavigate={(page) => navigate(adminPaths[page])}
         />
-        <main className="min-w-0 flex-1 bg-[#fffafc] p-4 sm:p-7 lg:p-9">
-          <header className="mb-6 flex items-center justify-between border-b border-[#f1dfe9] pb-4">
-            <div>
+        <main className="min-w-0 flex-1 bg-[#fffafc] px-3 pb-[calc(1.25rem+env(safe-area-inset-bottom))] pt-3 sm:p-7 lg:p-9">
+          <header className="mb-5 flex min-w-0 flex-wrap items-center justify-between gap-3 border-b border-[#f1dfe9] pb-4 sm:mb-6">
+            <div className="min-w-0 flex-1">
               <button
                 type="button"
                 aria-label="Abrir menu"
                 onClick={() => setMobileMenuOpen(true)}
-                className="mb-4 rounded-xl border border-[#efd7e7] bg-white p-2 text-[#8B5E7C] md:hidden"
+                className="mb-2 inline-flex min-h-11 min-w-11 items-center justify-center rounded-xl border border-[#efd7e7] bg-white text-[#8B5E7C] md:hidden"
               >
                 <Menu size={18} />
               </button>
               <p className="text-xs uppercase tracking-[0.24em] text-[#8B5E7C]">Painel administrativo</p>
-              <h1 className="mt-2 text-2xl font-semibold">{currentModule?.title ?? 'Área administrativa'}</h1>
+              <h1 className="mt-1 break-words text-xl font-semibold sm:text-2xl">{currentModule?.title ?? 'Área administrativa'}</h1>
             </div>
-            <Link to="/" className="rounded-full bg-[#8B5E7C] px-4 py-2.5 text-sm font-medium text-white">Ver loja</Link>
+            <Link to="/" className="inline-flex min-h-11 shrink-0 items-center justify-center rounded-full bg-[#8B5E7C] px-4 text-sm font-medium text-white">Ver loja</Link>
           </header>
           <p className="mb-5 rounded-2xl border border-[#f1dfe9] bg-[#fef3f8] px-4 py-3 text-xs text-[#5d4454]">{syncStatus}</p>
           {message && <p role="alert" className="mb-5 rounded-2xl bg-rose-50 p-3 text-sm text-rose-900">{message}</p>}
           {currentModule?.id === 'estoque' ? (
-            <section className="overflow-x-auto rounded-3xl border border-[#f1dfe9] bg-white p-5">
+            <section className="min-w-0 rounded-3xl border border-[#f1dfe9] bg-white p-3 sm:p-5">
               <p className="mb-4 text-sm text-[#5d4454]">{currentModule.description}</p>
-              <table className="min-w-full text-left text-sm">
-                <thead className="text-[#5d4454]"><tr><th className="px-3 py-2">Produto</th><th className="px-3 py-2">SKU</th><th className="px-3 py-2">Saldo</th></tr></thead>
-                <tbody>
-                  {catalog.map((product) => <tr key={product.id} className="border-t border-[#f1dfe9]"><td className="px-3 py-3">{product.name}</td><td className="px-3 py-3">{product.sku ?? '—'}</td><td className="px-3 py-3">{product.stock}</td></tr>)}
-                  {catalog.length === 0 && <tr><td colSpan={3} className="px-3 py-6 text-center text-[#5d4454]">Nenhum produto disponível para consulta.</td></tr>}
-                </tbody>
-              </table>
+              <ul className="divide-y divide-[#f1dfe9] md:hidden">
+                {catalog.map((product) => (
+                  <li key={product.id} className="flex min-w-0 items-center justify-between gap-3 py-3">
+                    <div className="min-w-0">
+                      <p className="break-words text-sm font-medium text-[#2d1d25]">{product.name}</p>
+                      <p className="mt-1 truncate text-xs text-[#76506a]">SKU: {product.sku ?? '—'}</p>
+                    </div>
+                    <span className="shrink-0 rounded-full bg-[#f8e9ef] px-3 py-1.5 text-sm font-semibold text-[#76506a]">{product.stock}</span>
+                  </li>
+                ))}
+                {catalog.length === 0 && <li className="py-6 text-center text-sm text-[#5d4454]">Nenhum produto disponível para consulta.</li>}
+              </ul>
+              <div role="region" aria-label="Estoque por produto" tabIndex={0} className="hidden overflow-x-auto md:block">
+                <table className="min-w-[34rem] text-left text-sm">
+                  <thead className="text-[#5d4454]"><tr><th className="px-3 py-2">Produto</th><th className="px-3 py-2">SKU</th><th className="px-3 py-2">Saldo</th></tr></thead>
+                  <tbody>
+                    {catalog.map((product) => <tr key={product.id} className="border-t border-[#f1dfe9]"><td className="px-3 py-3">{product.name}</td><td className="px-3 py-3">{product.sku ?? '—'}</td><td className="px-3 py-3">{product.stock}</td></tr>)}
+                    {catalog.length === 0 && <tr><td colSpan={3} className="px-3 py-6 text-center text-[#5d4454]">Nenhum produto disponível para consulta.</td></tr>}
+                  </tbody>
+                </table>
+              </div>
             </section>
           ) : currentModule?.id === 'categorias' ? (
-            <section className="rounded-3xl border border-[#f1dfe9] bg-white p-5">
+            <section className="rounded-3xl border border-[#f1dfe9] bg-white p-3 sm:p-5">
               <p className="mb-4 text-sm text-[#5d4454]">{currentModule.description}</p>
               <ul className="flex flex-wrap gap-2">{categories.map((category) => <li key={category} className="rounded-full bg-[#f8e9ef] px-3 py-2 text-sm text-[#5d4454]">{category}</li>)}</ul>
             </section>
           ) : currentModule?.id === 'configuracoes' ? (
-            <section className="rounded-3xl border border-[#f1dfe9] bg-white p-5 sm:p-7">
+            <section className="rounded-3xl border border-[#f1dfe9] bg-white p-3 sm:p-7">
               <p className="mb-5 text-sm text-[#5d4454]">{currentModule.description}</p>
               <WhatsAppSettingsForm />
             </section>
           ) : currentModule?.id === 'usuarios' ? (
-            <UserManagement />
+            <Suspense fallback={<RouteLoadingFallback />}>
+              <UserManagement />
+            </Suspense>
           ) : (
-            <section className="rounded-3xl border border-[#f1dfe9] bg-white p-6 sm:p-8">
+            <section className="rounded-3xl border border-[#f1dfe9] bg-white p-4 sm:p-8">
               <h2 className="text-lg font-semibold">{currentModule?.title ?? 'Módulo não encontrado'}</h2>
               <p className="mt-2 max-w-2xl text-sm leading-6 text-[#5d4454]">
                 {currentModule?.description ?? 'A área solicitada não existe.'}
@@ -1261,7 +1372,7 @@ function ProductCard({ product }: { product: ProductView }) {
   return (
     <article className="overflow-hidden rounded-[2rem] border border-[#f1dfe9] bg-white shadow-sm transition hover:-translate-y-1 hover:shadow-soft">
       <Link to={`/produto/${product.slug}`}>
-        <img src={product.image} alt={product.name} className="h-64 w-full object-cover" />
+        <img src={product.image} alt={product.name} loading="lazy" decoding="async" className="aspect-[4/3] w-full object-cover" />
       </Link>
       <div className="p-4">
         <div className="mb-2 flex items-center justify-between">
@@ -1278,11 +1389,24 @@ function ProductCard({ product }: { product: ProductView }) {
   );
 }
 
+function ProductCardSkeleton() {
+  return (
+    <article aria-hidden="true" className="overflow-hidden rounded-[2rem] border border-[#f1dfe9] bg-white shadow-sm">
+      <div className="aspect-[4/3] animate-pulse bg-[#f8e9ef]" />
+      <div className="space-y-3 p-4">
+        <div className="h-3 w-20 animate-pulse rounded-full bg-[#f8e9ef]" />
+        <div className="h-5 w-3/4 animate-pulse rounded bg-[#f8e9ef]" />
+        <div className="h-5 w-1/3 animate-pulse rounded bg-[#f8e9ef]" />
+      </div>
+    </article>
+  );
+}
+
 function Header() {
   const { totalItems } = useCart();
 
   return (
-    <header className="sticky top-0 z-40 border-b border-[#f2dde8] bg-[#fffafc]/90 backdrop-blur-sm">
+    <header className="sticky top-0 z-40 border-b border-[#f2dde8] bg-[#fffafc]/90 pt-[env(safe-area-inset-top)] backdrop-blur-sm">
       <div className="mx-auto flex max-w-6xl items-center justify-between gap-3 px-4 py-3 sm:px-6 lg:px-8">
         <Link to="/" className="flex items-center gap-3">
           <img
@@ -1298,10 +1422,11 @@ function Header() {
         </nav>
 
         <div className="flex items-center gap-2">
-          <button type="button" aria-label="Pesquisar" className="rounded-full border border-[#efd7e7] bg-white p-2.5 text-[#8B5E7C]">
+          <PwaInstallButton />
+          <button type="button" aria-label="Pesquisar" className="inline-flex min-h-11 min-w-11 items-center justify-center rounded-full border border-[#efd7e7] bg-white p-2.5 text-[#8B5E7C]">
             <Search size={18} />
           </button>
-          <Link to="/carrinho" className="relative inline-flex rounded-full border border-[#efd7e7] bg-white p-2.5 text-[#8B5E7C]">
+          <Link to="/carrinho" aria-label={`Carrinho${totalItems > 0 ? `, ${totalItems} itens` : ''}`} className="relative inline-flex min-h-11 min-w-11 items-center justify-center rounded-full border border-[#efd7e7] bg-white p-2.5 text-[#8B5E7C]">
             <ShoppingBag size={18} />
             {totalItems > 0 && <span className="absolute -right-1 -top-1 flex h-5 min-w-5 items-center justify-center rounded-full bg-[#8B5E7C] px-1 text-[10px] font-semibold text-white">{totalItems}</span>}
           </Link>

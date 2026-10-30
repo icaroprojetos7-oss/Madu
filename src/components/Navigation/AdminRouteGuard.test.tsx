@@ -5,7 +5,7 @@ import { AdminRouteGuard } from './AdminRouteGuard';
 
 const auth = vi.hoisted(() => ({
   user: null as { app_metadata: Record<string, unknown> } | null,
-  role: null as 'admin' | 'operator' | null,
+  role: null as 'admin' | null,
   loading: false,
   roleLoading: false,
   roleError: '',
@@ -71,18 +71,20 @@ describe('admin route guard', () => {
     expect(screen.getByText('Painel autorizado')).toBeInTheDocument();
   });
 
-  it('allows an authorized operator', () => {
+  it('denies a legacy operator role after role removal', () => {
     auth.user = { app_metadata: { role: 'operator' } };
-    auth.role = 'operator';
+    auth.role = null;
 
     render(
       <MemoryRouter initialEntries={['/admin/produtos']}>
         <Routes>
           <Route path="/admin/*" element={<AdminRouteGuard><p>Painel autorizado</p></AdminRouteGuard>} />
+          <Route path="/admin/login" element={<CurrentPath />} />
         </Routes>
       </MemoryRouter>,
     );
 
-    expect(screen.getByText('Painel autorizado')).toBeInTheDocument();
+    expect(screen.getByText('rota: /admin/login')).toBeInTheDocument();
+    expect(screen.queryByText('Painel autorizado')).not.toBeInTheDocument();
   });
 });

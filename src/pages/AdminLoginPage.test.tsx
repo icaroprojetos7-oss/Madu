@@ -5,9 +5,11 @@ import { AdminLoginPage } from './AdminLoginPage';
 
 const auth = vi.hoisted(() => ({
   user: null as { app_metadata: Record<string, unknown> } | null,
-  role: null as 'admin' | 'operator' | null,
+  role: null as 'admin' | null,
+  permissionIssue: null as 'missing-profile' | 'unauthorized' | null,
   roleLoading: false,
   roleError: '',
+  sessionNotice: '',
   configured: true,
   signIn: vi.fn(),
   signOut: vi.fn(),
@@ -34,8 +36,10 @@ describe('admin login page', () => {
   beforeEach(() => {
     auth.user = null;
     auth.role = null;
+    auth.permissionIssue = null;
     auth.roleLoading = false;
     auth.roleError = '';
+    auth.sessionNotice = '';
     auth.configured = true;
     auth.signIn.mockReset();
     auth.signOut.mockReset();
@@ -63,7 +67,7 @@ describe('admin login page', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Entrar' }));
 
     expect(await screen.findByRole('alert')).toHaveTextContent(
-      'E-mail ou senha incorretos. Confira o e-mail exato cadastrado no Supabase',
+      'O Supabase não aceitou as credenciais. Confira o e-mail e a senha',
     );
     expect(screen.queryByText('Painel protegido')).not.toBeInTheDocument();
   });
@@ -78,23 +82,23 @@ describe('admin login page', () => {
   });
 
   it('does not navigate until authorization has completed', async () => {
-    let resolveSignIn: ((result: { error: null; role: 'operator' }) => void) | undefined;
+    let resolveSignIn: ((result: { error: null; role: 'admin' }) => void) | undefined;
     auth.signIn.mockImplementation(() => new Promise((resolve) => {
       resolveSignIn = resolve;
     }));
     renderLogin();
 
-    fireEvent.change(screen.getByLabelText('E-mail'), { target: { value: 'operator@example.com' } });
+    fireEvent.change(screen.getByLabelText('E-mail'), { target: { value: 'admin@example.com' } });
     fireEvent.change(screen.getByLabelText('Senha'), { target: { value: 'secret' } });
     fireEvent.click(screen.getByRole('button', { name: 'Entrar' }));
 
     expect(screen.queryByText('Painel protegido')).not.toBeInTheDocument();
-    resolveSignIn?.({ error: null, role: 'operator' });
+    resolveSignIn?.({ error: null, role: 'admin' });
     expect(await screen.findByText('Painel protegido')).toBeInTheDocument();
   });
 
   it('does not navigate when the authenticated account has no active permission', async () => {
-    auth.signIn.mockResolvedValue({ error: null, role: null });
+    auth.signIn.mockResolvedValue({ error: null, role: null, permissionIssue: 'unauthorized' });
     renderLogin();
 
     fireEvent.change(screen.getByLabelText('E-mail'), { target: { value: 'user@example.com' } });
@@ -102,8 +106,20 @@ describe('admin login page', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Entrar' }));
 
     expect(await screen.findByRole('alert')).toHaveTextContent(
-      'Esta conta não tem autorização para acessar o painel da MADU.',
+      'A autenticação foi concluída, mas esta conta não tem autorização para acessar o painel da MADU.',
     );
+    expect(screen.queryByText('Painel protegido')).not.toBeInTheDocument();
+  });
+
+  it('explains when authentication succeeds but the account has no linked profile', async () => {
+    auth.signIn.mockResolvedValue({ error: null, role: null, permissionIssue: 'missing-profile' });
+    renderLogin();
+
+    fireEvent.change(screen.getByLabelText('E-mail'), { target: { value: 'owner@example.com' } });
+    fireEvent.change(screen.getByLabelText('Senha'), { target: { value: 'secret' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Entrar' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('não tem perfil associado ao painel');
     expect(screen.queryByText('Painel protegido')).not.toBeInTheDocument();
   });
 });

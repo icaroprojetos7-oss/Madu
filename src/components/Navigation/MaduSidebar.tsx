@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   ChevronLeft,
   ChevronRight,
@@ -15,7 +15,6 @@ import {
   X,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
-import type { AdminRole } from '../../lib/adminAuth';
 
 export type AdminPageId =
   | 'dashboard'
@@ -45,7 +44,6 @@ type MaduSidebarProps = {
   onLogout: () => void;
   mobileOpen: boolean;
   onClose: () => void;
-  userRole: AdminRole;
 };
 
 const navigationGroups: NavigationGroup[] = [
@@ -74,9 +72,24 @@ export function MaduSidebar({
   onLogout,
   mobileOpen,
   onClose,
-  userRole,
 }: MaduSidebarProps) {
   const [collapsed, setCollapsed] = useState(false);
+
+  useEffect(() => {
+    if (!mobileOpen) return;
+
+    const previousOverflow = document.body.style.overflow;
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') onClose();
+    };
+
+    document.body.style.overflow = 'hidden';
+    window.addEventListener('keydown', closeOnEscape);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener('keydown', closeOnEscape);
+    };
+  }, [mobileOpen, onClose]);
 
   return (
     <>
@@ -90,8 +103,10 @@ export function MaduSidebar({
       )}
 
       <aside
+        role={mobileOpen ? 'dialog' : undefined}
         aria-label="Navegação administrativa"
-        className={`fixed inset-y-0 left-0 z-50 flex w-[260px] flex-col bg-[#5d4454] text-white shadow-[12px_0_35px_rgba(45,29,37,0.10)] transition-all duration-300 md:sticky md:top-0 md:z-20 md:h-screen md:shrink-0 ${
+        aria-modal={mobileOpen || undefined}
+        className={`fixed inset-y-0 left-0 z-50 flex w-[min(260px,calc(100vw-2rem))] flex-col bg-[#5d4454] pt-[env(safe-area-inset-top)] text-white shadow-[12px_0_35px_rgba(45,29,37,0.10)] transition-all duration-300 md:sticky md:top-0 md:z-20 md:h-screen md:w-[260px] md:shrink-0 ${
           collapsed ? 'md:w-[84px]' : 'md:w-[260px]'
         } ${mobileOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'}`}
       >
@@ -117,6 +132,7 @@ export function MaduSidebar({
           </div>
           <button
             type="button"
+            autoFocus={mobileOpen}
             onClick={onClose}
             aria-label="Fechar menu"
             className="rounded-xl p-2 text-white/70 hover:bg-white/10 md:hidden"
@@ -127,11 +143,7 @@ export function MaduSidebar({
 
         <nav className="flex-1 space-y-2 overflow-y-auto px-3 pb-4">
           {navigationGroups.map((group) => {
-            const visibleItems = group.items.filter(
-              (item) => userRole === 'admin' || item.id === 'produtos',
-            );
-            if (visibleItems.length === 0) return null;
-
+            const visibleItems = group.items;
             return (
             <div key={group.title}>
               {!collapsed && (
@@ -172,7 +184,7 @@ export function MaduSidebar({
           })}
         </nav>
 
-        <div className="border-t border-white/10 p-3">
+        <div className="border-t border-white/10 p-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] md:pb-3">
           <button
             type="button"
             title={collapsed ? 'Sair' : undefined}
