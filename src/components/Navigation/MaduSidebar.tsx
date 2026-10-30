@@ -1,15 +1,9 @@
 import { useEffect, useState } from 'react';
 import {
-  Boxes,
-  ClipboardList,
   ChevronLeft,
   ChevronRight,
-  LayoutDashboard,
   LogOut,
-  Package,
-  Settings,
   ShieldCheck,
-  Tags,
   X,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
@@ -46,16 +40,8 @@ type MaduSidebarProps = {
 
 const navigationGroups: NavigationGroup[] = [
   {
-    title: 'LOJA',
-    items: [
-      { id: 'dashboard', label: 'Visão geral', icon: LayoutDashboard },
-      { id: 'produtos', label: 'Produtos', icon: Package },
-      { id: 'categorias', label: 'Categorias', icon: Tags },
-      { id: 'pedidos', label: 'Pedidos', icon: ClipboardList },
-      { id: 'estoque', label: 'Estoque', icon: Boxes },
-      { id: 'configuracoes', label: 'Configurações', icon: Settings },
-      { id: 'usuarios', label: 'Usuários e permissões', icon: ShieldCheck },
-    ],
+    title: 'GESTÃO',
+    items: [{ id: 'usuarios', label: 'Usuários e permissões', icon: ShieldCheck }],
   },
 ];
 

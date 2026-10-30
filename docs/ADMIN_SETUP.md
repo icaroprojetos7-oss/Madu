@@ -98,22 +98,6 @@ Para a gestão funcionar na publicação estática, configure `VITE_SUPABASE_URL
 
 Em **Administração → Configurações**, informe o número comercial com código do país e salve. O número fica em `public.store_settings.whatsapp_number` na linha `id = 'main'`; vitrine, rodapé e carrinho leem essa mesma configuração. O `VITE_WHATSAPP_NUMBER` é apenas um fallback opcional se a linha ainda não existir. Não há número fictício padrão; sem valor confirmado, os links de contato/checkout não são gerados.
 
-## Pedidos e estoque
-
-O checkout agora exige a migration `20261030205705_whatsapp_orders_and_inventory_workflow.sql` e a Edge Function `create-order`. Depois de revisar o projeto e confirmar o backup:
-
-```bash
-npx supabase db push
-npx supabase secrets set ORDER_APP_ORIGINS="https://sua-loja.example" STORE_PUBLIC_URL="https://sua-loja.example"
-npx supabase functions deploy create-order
-```
-
-`ORDER_APP_ORIGINS` contém os origins exatos permitidos, separados por vírgula e sem caminhos. Inclua `http://localhost:5173`/`http://127.0.0.1:5173` somente quando for necessário testar localmente. `STORE_PUBLIC_URL` define o host gravado nos links de produto do pedido. A Edge Function recebe `SUPABASE_URL` e `SUPABASE_SERVICE_ROLE_KEY` pelo ambiente seguro do Supabase; nunca copie esses valores para o cliente ou para `VITE_*`. Mantenha a verificação JWT habilitada durante o deploy: o cliente anônimo usa a chave pública, e a função responde com CORS apenas aos origins configurados. Como o checkout é público, CORS não substitui proteção contra chamadas automatizadas; o endpoint valida todos os campos e o banco continua sendo a autoridade de preço e estoque.
-
-O app grava o pedido e os preços atuais antes de mostrar o botão de compartilhamento. A criação não reserva nem reduz estoque. A administradora confirma a venda no painel, momento em que o banco revalida o saldo, baixa o estoque e registra o movimento atomicamente. Cancelamento pendente não altera estoque; estorno de venda confirmada devolve as unidades uma única vez e exige motivo. Edições manuais do saldo pelo cadastro de produtos também entram no histórico.
-
-O compartilhamento nativo pode anexar os arquivos de imagem originais em navegadores/dispositivos compatíveis; a cliente escolhe o WhatsApp e confirma o envio. Se o compartilhamento de arquivos não estiver disponível ou as fotos não puderem ser carregadas, o fallback `wa.me` abre somente o texto, com aviso explícito. Não há envio automático pela Cloud API nem confirmação de entrega da mensagem.
-
 ## Produtos e Storage
 
 - A vitrine consulta somente produtos com `is_active = true`; administradores autenticados podem consultar todos e gerenciar o catálogo.
@@ -145,7 +129,7 @@ where lower(users.email) = lower('email-usado-no-login@example.com');
 
 Confirme que `permission_user_id` corresponde ao `auth_user_id`, que `role` é `admin`, `is_active` é `true` e `status` é `active`; o e-mail salvo no perfil não é usado para autorizar. Se a linha não existir mas `raw_app_meta_data.role` for `admin`, aplique a migration de backfill. Se a linha não existir ou estiver inativa por outro motivo, siga o procedimento de bootstrap confiável acima para uma conta verificada. Após corrigir a permissão no banco, encerre a sessão e entre novamente. Não habilite acesso automaticamente para todas as contas Auth.
 
-O painel de pedidos e o histórico de estoque usam os dados persistidos no Supabase. A área financeira não processa pagamentos e não deve apresentar pedidos como pagos. O cadastro de clientes continua opcional no checkout; não há uma área independente de CRM.
+Categorias administrativas, clientes, pedidos e financeiro ainda não têm integração funcional no app. O checkout envia um resumo real do carrinho ao WhatsApp, mas não grava um pedido, reserva estoque nem processa/confirmar pagamento.
 
 ## Setup local e execução
 

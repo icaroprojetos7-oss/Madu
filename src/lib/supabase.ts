@@ -176,7 +176,6 @@ export async function saveProductToSupabase(
 
 export async function updateProductInSupabase(
   product: Product,
-  stockUpdate?: { preserveCurrentStock: true } | { expectedStock: number },
 ): Promise<{ ok: true; product: Product } | { ok: false; reason: string }> {
   if (!supabase) {
     return { ok: false, reason: 'Credenciais do Supabase ausentes.' };
@@ -185,29 +184,16 @@ export async function updateProductInSupabase(
   const skuError = await findDuplicateSku(product, product.id);
   if (skuError) return { ok: false, reason: skuError };
 
-  const payload = productPayload(product);
-  if (stockUpdate && 'preserveCurrentStock' in stockUpdate) {
-    delete payload.stock;
-  }
-
-  let query = supabase
+  const { data, error } = await supabase
     .from('products')
-    .update(payload)
-    .eq('id', product.id);
-  if (stockUpdate && 'expectedStock' in stockUpdate) {
-    query = query.eq('stock', stockUpdate.expectedStock);
-  }
-  const { data, error } = await query.select('*').single();
+    .update(productPayload(product))
+    .eq('id', product.id)
+    .select('*')
+    .single();
 
   if (error) {
     if (error.code === '23505') {
       return { ok: false, reason: 'Já existe um produto com esse SKU ou identificador.' };
-    }
-    if (error.code === 'PGRST116' && stockUpdate && 'expectedStock' in stockUpdate) {
-      return {
-        ok: false,
-        reason: 'O estoque mudou desde que o produto foi aberto. Recarregue o catálogo e revise a quantidade antes de salvar.',
-      };
     }
     return { ok: false, reason: error.message };
   }

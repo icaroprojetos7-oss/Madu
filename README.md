@@ -110,7 +110,7 @@ O telefone comercial é normalizado e persistido em `store_settings.whatsapp_num
 
 O acesso ao painel é baseado em `admin_user_permissions`, com um único papel `admin`; a Edge Function `admin-users` lista e revoga acessos, mas não concede novos. A chave privilegiada permanece exclusivamente no servidor, e o banco impede revogar o último administrador. Migrações e Edge Functions não são aplicadas automaticamente; siga `docs/ADMIN_SETUP.md` para configuração e implantação explícitas.
 
-O checkout grava pedidos antes do compartilhamento e o banco calcula os preços usando o catálogo atual. A Edge Function `create-order` precisa ser implantada para habilitar o fluxo. A Web Share API anexa fotos originais em dispositivos compatíveis; `wa.me` é fallback somente de texto. Administradores confirmam vendas, cancelam pedidos pendentes ou estornam vendas pelo painel; baixa e devolução de estoque e histórico são transacionais. O sistema não envia mensagens pela Cloud API nem processa pagamentos.
+Categorias administrativas, clientes, pedidos e financeiro continuam sem integração funcional. O checkout abre o WhatsApp, mas não grava pedidos nem confirma pagamentos.
 
 ## Observações
 - O fluxo de checkout é orientado ao WhatsApp sem cobrança online.

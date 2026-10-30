@@ -3,7 +3,7 @@ import { ArrowRight, Heart, Menu, MessageCircleMore, Minus, Pencil, Plus, Search
 import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from 'react';
 import type { FormEvent } from 'react';
 import { defaultCategories, products } from './data/mockProducts';
-import { buildWhatsAppMessage, buildWhatsAppUrl, formatCurrency, getCartSummary, loadOrderImageFiles } from './lib/commerce';
+import { buildWhatsAppMessage, buildWhatsAppUrl, formatCurrency, getCartSummary } from './lib/commerce';
 import {
   getCategoriesFromSupabase,
   saveCategoryToSupabase,
@@ -37,13 +37,6 @@ import maduLogo from './assets/madu-logo-transparent.png';
 import { useStoreSettings } from './context/StoreSettingsContext';
 import { normalizeWhatsAppNumber } from './lib/storeSettings';
 import { OfflineNotice, PwaInstallButton, StoreBottomNavigation, VersionUpdateNotice } from './components/PWA/PwaControls';
-import { InventoryHistory } from './components/Admin/InventoryHistory';
-import { OrdersManager } from './components/Admin/OrdersManager';
-import {
-  createCustomerOrder,
-  getOrderDashboardSummary,
-  type StoreOrder,
-} from './lib/orders';
 
 type ProductView = (typeof products)[number];
 
@@ -479,16 +472,6 @@ function CartPage() {
   const { items, updateQuantity, removeItem, refreshFromCatalog, clearCart } = useCart();
   const { catalog, isLoading: catalogLoading, loadError: catalogError } = useStorefrontProducts();
   const { whatsappNumber, loading: settingsLoading, error: settingsError } = useStoreSettings();
-  const [customerName, setCustomerName] = useState('');
-  const [customerPhone, setCustomerPhone] = useState('');
-  const [createdOrder, setCreatedOrder] = useState<StoreOrder | null>(null);
-  const [sharedFiles, setSharedFiles] = useState<File[]>([]);
-  const [loadingPhotos, setLoadingPhotos] = useState(false);
-  const [sharingPhotos, setSharingPhotos] = useState(false);
-  const [photoError, setPhotoError] = useState('');
-  const [checkoutError, setCheckoutError] = useState('');
-  const [checkoutNotice, setCheckoutNotice] = useState('');
-  const [creatingOrder, setCreatingOrder] = useState(false);
   const productsById = useMemo(() => new Map(catalog.map((product) => [product.id, product])), [catalog]);
   const cartItems = useMemo(() => items.map((item) => {
     const product = productsById.get(item.id);
@@ -508,71 +491,18 @@ function CartPage() {
     if (!catalogLoading && !catalogError) refreshFromCatalog(catalog);
   }, [catalog, catalogError, catalogLoading, refreshFromCatalog]);
 
-  useEffect(() => {
-    if (!createdOrder) return;
-    let active = true;
-    const canShareImageFiles = typeof File !== 'undefined' &&
-      typeof navigator.share === 'function' &&
-      typeof navigator.canShare === 'function' &&
-      navigator.canShare({ files: [new File([], 'madu-share-check.jpg', { type: 'image/jpeg' })] });
-    if (!canShareImageFiles) {
-      setSharedFiles([]);
-      setLoadingPhotos(false);
-      return;
-    }
-
-    setLoadingPhotos(true);
-    setPhotoError('');
-    void loadOrderImageFiles(createdOrder.order_items.map((item) => ({
-      imageUrl: item.image_url,
-      name: item.product_name,
-      sku: item.sku,
-    })))
-      .then((files) => {
-        if (active) setSharedFiles(files);
-      })
-      .catch((error: unknown) => {
-        if (active) {
-          setSharedFiles([]);
-          setPhotoError(error instanceof Error ? error.message : 'Não foi possível preparar as fotos.');
-        }
-      })
-      .finally(() => {
-        if (active) setLoadingPhotos(false);
-      });
-    return () => {
-      active = false;
-    };
-  }, [createdOrder]);
-
   const summary = getCartSummary(cartItems.map((item) => ({ quantity: item.quantity, unitPrice: item.unitPrice })));
-  const whatsappMessage = createdOrder
-    ? buildWhatsAppMessage({
-        items: createdOrder.order_items.map((item) => ({
-          id: item.product_id ?? item.id,
-          name: item.product_name,
-          quantity: item.quantity,
-          unitPrice: item.unit_price_cents,
-          variation: item.variation ?? undefined,
-          sku: item.sku ?? undefined,
-          productUrl: item.product_url ?? undefined,
-        })),
-        storeName: 'MADU ACESSÓRIOS',
-        customerName: createdOrder.customer_name ?? undefined,
-        orderNumber: createdOrder.order_number,
-      })
-    : '';
-  const canShareOrderFiles = sharedFiles.length > 0 &&
-    typeof navigator.share === 'function' &&
-    typeof navigator.canShare === 'function' &&
-    navigator.canShare({ files: sharedFiles });
+  const whatsappMessage = buildWhatsAppMessage({
+    items: cartItems.map((item) => ({ id: item.id, quantity: item.quantity, unitPrice: item.unitPrice, name: item.name, variation: item.variation, sku: item.sku })),
+    storeName: 'MADU ACESSÓRIOS',
+    notes: 'Gostaria de confirmar a disponibilidade.',
+  });
   const unavailableItems = cartItems.filter((item) => {
     const currentProduct = productsById.get(item.id);
     return !currentProduct || item.quantity > currentProduct.stock;
   });
   const canCheckout = Boolean(
     items.length > 0 &&
-    getSupabaseStatus().enabled &&
     whatsappNumber &&
     !settingsLoading &&
     !settingsError &&
@@ -581,150 +511,20 @@ function CartPage() {
     unavailableItems.length === 0,
   );
 
-  async function handleCreateOrder() {
-    if (!canCheckout || creatingOrder) return;
-    setCreatingOrder(true);
-    setCheckoutError('');
-    setCheckoutNotice('');
-    try {
-      const order = await createCustomerOrder({
-        items: cartItems.map((item) => ({
-          product_id: item.id,
-          quantity: item.quantity,
-          variation: item.variation,
-        })),
-        customer_name: customerName,
-        customer_phone: customerPhone,
-      });
-      setCreatedOrder(order);
-      clearCart();
-      setCheckoutNotice(`Pedido ${order.order_number} registrado. O estoque só muda após a confirmação da administradora.`);
-    } catch (error) {
-      setCheckoutError(error instanceof Error ? error.message : 'Não foi possível registrar o pedido.');
-    } finally {
-      setCreatingOrder(false);
-    }
-  }
-
-  async function handleShareOrder() {
-    if (!createdOrder || sharingPhotos) return;
-    setCheckoutError('');
-    setCheckoutNotice('');
-
-    if (canShareOrderFiles) {
-      setSharingPhotos(true);
-      try {
-        await navigator.share({
-          files: sharedFiles,
-          title: `Pedido ${createdOrder.order_number} | MADU`,
-          text: whatsappMessage,
-        });
-        setCheckoutNotice('Compartilhamento aberto. Escolha o WhatsApp e confirme o envio das fotos e da mensagem.');
-      } catch (error) {
-        if (error instanceof Error && error.name === 'AbortError') {
-          setCheckoutNotice('Compartilhamento cancelado. O pedido continua registrado e ainda aguarda confirmação.');
-        } else {
-          setCheckoutError(error instanceof Error ? error.message : 'Não foi possível abrir o compartilhamento de fotos.');
-        }
-      } finally {
-        setSharingPhotos(false);
-      }
-      return;
-    }
-  }
-
   return (
     <>
       <Header />
       <main className="mx-auto max-w-6xl px-4 pb-20 pt-4 sm:px-6 lg:px-8">
         <div className="mb-6 flex items-center justify-between">
           <h1 className="text-2xl font-semibold text-[#2d1d25]">Carrinho</h1>
-          {items.length > 0 && !createdOrder && (
+          {items.length > 0 && (
             <button type="button" onClick={clearCart} className="text-sm font-medium text-[#8B5E7C]">
               Limpar carrinho
             </button>
           )}
         </div>
 
-        {createdOrder ? (
-          <section className="mx-auto max-w-2xl rounded-[2rem] border border-[#f1dfe9] bg-white p-5 shadow-sm sm:p-8">
-            <div className="mb-5 flex flex-wrap items-start justify-between gap-3">
-              <div>
-                <p className="text-xs uppercase tracking-[0.18em] text-[#8B5E7C]">Pedido registrado</p>
-                <h2 className="mt-1 break-all text-2xl font-semibold text-[#2d1d25]">#{createdOrder.order_number}</h2>
-                <p className="mt-2 text-sm text-[#5d4454]">
-                  Aguardando confirmação. Nenhuma unidade foi retirada do estoque.
-                </p>
-              </div>
-              <span className="rounded-full bg-amber-50 px-3 py-1.5 text-xs font-semibold text-amber-800">Pendente</span>
-            </div>
-
-            <ul className="divide-y divide-[#f1dfe9]">
-              {createdOrder.order_items.map((item) => (
-                <li key={item.id} className="flex items-center gap-3 py-3">
-                  <img
-                    src={item.image_url || '/assets/brand/madu-favicon.png'}
-                    alt=""
-                    className="h-16 w-16 shrink-0 rounded-xl bg-[#f8e9ef] object-cover"
-                  />
-                  <div className="min-w-0 flex-1">
-                    <p className="text-sm font-medium text-[#2d1d25]">{item.product_name}</p>
-                    <p className="text-xs text-[#76506a]">
-                      Código: {item.sku || '—'} · Qtd. {item.quantity}
-                      {item.variation ? ` · ${item.variation}` : ''}
-                    </p>
-                  </div>
-                  <p className="shrink-0 text-sm font-semibold text-[#2d1d25]">{formatCurrency(item.line_total_cents)}</p>
-                </li>
-              ))}
-            </ul>
-
-            <div className="mt-4 flex justify-between border-t border-[#f1dfe9] pt-4 text-base font-semibold">
-              <span>Total</span>
-              <span>{formatCurrency(createdOrder.total_cents)}</span>
-            </div>
-
-            {loadingPhotos && (
-              <p role="status" className="mt-4 text-sm text-[#76506a]">Preparando as fotos originais dos produtos...</p>
-            )}
-            {photoError && (
-              <p role="alert" className="mt-4 rounded-xl bg-amber-50 p-3 text-sm text-amber-900">
-                {photoError} O compartilhamento seguirá somente com texto.
-              </p>
-            )}
-            {checkoutNotice && <p role="status" className="mt-4 text-sm text-[#5d4454]">{checkoutNotice}</p>}
-            {checkoutError && <p role="alert" className="mt-4 text-sm text-red-700">{checkoutError}</p>}
-            {canShareOrderFiles && (
-              <button
-                type="button"
-                onClick={() => void handleShareOrder()}
-                disabled={loadingPhotos || sharingPhotos || !whatsappNumber}
-                className="mt-5 inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-full bg-[#8B5E7C] px-5 text-sm font-medium text-white shadow-md disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                <MessageCircleMore size={18} />
-                {sharingPhotos ? 'Abrindo compartilhamento...' : 'Compartilhar fotos e pedido'}
-              </button>
-            )}
-            <a
-              href={buildWhatsAppUrl(whatsappNumber, whatsappMessage)}
-              target="_blank"
-              rel="noreferrer"
-              onClick={() => setCheckoutNotice(
-                'Este link do WhatsApp contém somente texto; nenhuma foto foi anexada. O pedido continua registrado.',
-              )}
-              className="mt-3 inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-full border border-[#efd7e7] px-5 text-sm font-medium text-[#76506a]"
-            >
-              <MessageCircleMore size={17} />
-              {canShareOrderFiles ? 'Abrir WhatsApp somente com texto' : 'Abrir WhatsApp com texto'}
-            </a>
-            <p className="mt-3 text-center text-xs leading-5 text-[#76506a]">
-              Em dispositivos compatíveis, escolha o WhatsApp para anexar as fotos originais. O sistema não consegue confirmar se você enviou a mensagem.
-            </p>
-            <Link to="/produtos" className="mt-4 inline-flex min-h-11 w-full items-center justify-center text-sm font-medium text-[#8B5E7C]">
-              Continuar comprando
-            </Link>
-          </section>
-        ) : items.length === 0 ? (
+        {items.length === 0 ? (
           <div className="rounded-3xl border border-dashed border-[#d7b0c0] bg-white p-10 text-center text-[#5d4454]">
             Seu carrinho está vazio. <Link to="/produtos" className="font-medium text-[#8B5E7C]">Explore as peças</Link>.
           </div>
@@ -776,57 +576,27 @@ function CartPage() {
                 Revise os itens indisponíveis ou ajuste a quantidade ao estoque atual antes de continuar.
               </p>
               )}
-              <div className="mt-5 space-y-3">
-                <label className="block text-sm text-[#5d4454]">
-                  Seu nome <span className="text-xs text-[#9c7d8d]">(opcional)</span>
-                  <input
-                    type="text"
-                    value={customerName}
-                    onChange={(event) => setCustomerName(event.target.value)}
-                    maxLength={120}
-                    autoComplete="name"
-                    className="mt-1 w-full rounded-xl border border-[#efd7e7] bg-[#fffafc] px-3 py-2 text-sm text-[#2d1d25]"
-                  />
-                </label>
-                <label className="block text-sm text-[#5d4454]">
-                  Telefone para contato <span className="text-xs text-[#9c7d8d]">(opcional)</span>
-                  <input
-                    type="tel"
-                    value={customerPhone}
-                    onChange={(event) => setCustomerPhone(event.target.value)}
-                    maxLength={40}
-                    autoComplete="tel"
-                    className="mt-1 w-full rounded-xl border border-[#efd7e7] bg-[#fffafc] px-3 py-2 text-sm text-[#2d1d25]"
-                  />
-                </label>
-              </div>
               {catalogError && <p role="alert" className="mt-4 text-sm text-red-700">{catalogError}</p>}
               {settingsError && <p role="alert" className="mt-4 text-sm text-red-700">{settingsError}</p>}
-              {!getSupabaseStatus().enabled && (
-                <p role="alert" className="mt-4 text-sm text-red-700">
-                  O checkout de pedidos exige conexão com o Supabase. Nenhum pedido foi simulado.
-                </p>
-              )}
-              {checkoutError && <p role="alert" className="mt-4 text-sm text-red-700">{checkoutError}</p>}
               {!settingsLoading && !settingsError && !whatsappNumber && (
               <p role="status" className="mt-4 text-sm text-[#76506a]">O WhatsApp comercial ainda não foi configurado.</p>
               )}
               {canCheckout ? (
-              <button
-                type="button"
-                onClick={() => void handleCreateOrder()}
-                disabled={creatingOrder}
-                className="mt-6 inline-flex min-h-12 w-full items-center justify-center rounded-full bg-[#8B5E7C] px-5 text-sm font-medium text-white shadow-md disabled:cursor-not-allowed disabled:opacity-50"
+              <a
+                href={buildWhatsAppUrl(whatsappNumber, whatsappMessage)}
+                target="_blank"
+                rel="noreferrer"
+                className="mt-6 inline-flex w-full items-center justify-center rounded-full bg-[#8B5E7C] px-5 py-3 text-sm font-medium text-white shadow-md"
               >
-                {creatingOrder ? 'Registrando pedido...' : 'Registrar pedido e preparar WhatsApp'}
-              </button>
+                Finalizar pedido pelo WhatsApp
+              </a>
               ) : (
               <button
                 type="button"
                 disabled
                 className="mt-6 inline-flex w-full cursor-not-allowed items-center justify-center rounded-full bg-[#8B5E7C]/50 px-5 py-3 text-sm font-medium text-white"
               >
-                {catalogLoading || settingsLoading ? 'Verificando dados do pedido...' : 'Pedido indisponível'}
+                {catalogLoading || settingsLoading ? 'Verificando dados do pedido...' : 'WhatsApp indisponível'}
               </button>
               )}
             </aside>
@@ -853,7 +623,6 @@ function AdminPage() {
   } = useStorefrontProducts(true);
   const [productForm, setProductForm] = useState<ProductFormValues>(emptyProductForm);
   const [editingProductId, setEditingProductId] = useState<string | null>(null);
-  const [editingProductInitialStock, setEditingProductInitialStock] = useState<number | null>(null);
   const [selectedImageFile, setSelectedImageFile] = useState<File | null>(null);
   const [uploadedImageUrl, setUploadedImageUrl] = useState<string | null>(null);
   const [formErrors, setFormErrors] = useState<ProductFormErrors>({});
@@ -863,31 +632,9 @@ function AdminPage() {
   const [searchQuery, setSearchQuery] = useState('');
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [authMessage, setAuthMessage] = useState('');
-  const [orderSummary, setOrderSummary] = useState<{ pending: number; confirmed: number } | null>(null);
-  const [orderSummaryError, setOrderSummaryError] = useState('');
 
   const isProductFormDirty =
     JSON.stringify(productForm) !== JSON.stringify(emptyProductForm) || selectedImageFile !== null;
-
-  useEffect(() => {
-    if (!isAdmin) return;
-    let active = true;
-    void getOrderDashboardSummary()
-      .then((summary) => {
-        if (active) {
-          setOrderSummary(summary);
-          setOrderSummaryError('');
-        }
-      })
-      .catch((error: unknown) => {
-        if (active) {
-          setOrderSummaryError(error instanceof Error ? error.message : 'Não foi possível carregar os indicadores de pedidos.');
-        }
-      });
-    return () => {
-      active = false;
-    };
-  }, [isAdmin]);
 
   function updateProductForm<K extends ProductFormField>(field: K, value: ProductFormValues[K]) {
     setProductForm((current) => ({ ...current, [field]: value }));
@@ -898,7 +645,6 @@ function AdminPage() {
   function resetProductForm() {
     setProductForm(emptyProductForm);
     setEditingProductId(null);
-    setEditingProductInitialStock(null);
     setSelectedImageFile(null);
     setUploadedImageUrl(null);
     setFormErrors({});
@@ -923,7 +669,6 @@ function AdminPage() {
     if (!confirmDiscardProductForm()) return;
 
     setEditingProductId(product.id);
-    setEditingProductInitialStock(product.stock);
     setSelectedImageFile(null);
     setUploadedImageUrl(null);
     setFormErrors({});
@@ -1037,12 +782,7 @@ function AdminPage() {
       }
 
       const result = editingProductId
-        ? await updateProductInSupabase(
-            productToSave,
-            productToSave.stock === editingProductInitialStock
-              ? { preserveCurrentStock: true }
-              : { expectedStock: editingProductInitialStock ?? productToSave.stock },
-          )
+        ? await updateProductInSupabase(productToSave)
         : await saveProductToSupabase(productToSave);
       if (!result.ok) {
         setSaveMessage(`Não foi possível salvar o produto: ${result.reason}`);
@@ -1074,10 +814,6 @@ function AdminPage() {
     { label: 'Categorias', value: String(new Set(catalog.map((product) => product.category)).size), tone: 'purple' },
     { label: 'Unidades em estoque', value: String(catalog.reduce((sum, product) => sum + product.stock, 0)), tone: 'lavender' },
     { label: 'Estoque baixo', value: String(catalog.filter((product) => product.stock > 0 && product.stock <= 3).length), tone: 'rose' },
-    ...(orderSummary ? [
-      { label: 'Pedidos pendentes', value: String(orderSummary.pending), tone: 'rose' },
-      { label: 'Pedidos confirmados', value: String(orderSummary.confirmed), tone: 'purple' },
-    ] : []),
   ];
 
   const categorySummary = [...new Set(catalog.map((product) => product.category))]
@@ -1162,9 +898,6 @@ function AdminPage() {
             </div>
             {authMessage && <p role="alert" className="mb-5 rounded-2xl bg-rose-50 p-3 text-sm text-rose-900">{authMessage}</p>}
 
-            {isAdmin && orderSummaryError && (
-              <p role="alert" className="mb-4 rounded-2xl bg-rose-50 p-3 text-sm text-rose-900">{orderSummaryError}</p>
-            )}
             {isAdmin && <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
               {stats.map((stat) => (
                 <div key={stat.label} className="rounded-[1.5rem] border border-[#f1dfe9] bg-white p-4 shadow-sm">
@@ -1551,7 +1284,7 @@ function AdminModulePage() {
     pedidos: {
       id: 'pedidos',
       title: 'Pedidos',
-      description: 'Revise os pedidos registrados pelo site, confirme as vendas e autorize a baixa do estoque.',
+      description: 'Não há tabela nem integração de pedidos neste projeto. Os pedidos são negociados pelo WhatsApp e não são registrados no sistema.',
     },
     clientes: {
       id: 'clientes',
@@ -1693,12 +1426,6 @@ function AdminModulePage() {
                   </tbody>
                 </table>
               </div>
-              <InventoryHistory />
-            </section>
-          ) : currentModule?.id === 'pedidos' ? (
-            <section className="rounded-3xl border border-[#f1dfe9] bg-[#fffafc] p-3 sm:p-5">
-              <p className="mb-4 text-sm text-[#5d4454]">{currentModule.description}</p>
-              <OrdersManager />
             </section>
           ) : currentModule?.id === 'categorias' ? (
             <section className="rounded-3xl border border-[#f1dfe9] bg-white p-3 sm:p-5">

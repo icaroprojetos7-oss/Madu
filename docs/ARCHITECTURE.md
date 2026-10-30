@@ -1,24 +1,20 @@
 # Arquitetura
 
 ## Visão geral
-A aplicação separa a experiência do cliente, regras de comércio, painel administrativo e persistência segura no Supabase.
+A aplicação foi organizada em camadas para separar apresentação, regras de negócio e persistência local.
 
 ## Camadas
-- `src/App.tsx`: rotas, storefront, carrinho e dashboard.
-- `src/components/Admin`: pedidos e histórico de estoque.
-- `src/components/Navigation/MaduSidebar.tsx`: navegação do painel.
+- `src/App.tsx`: rotas e telas atuais do storefront e do painel administrativo.
+- `src/components`: componentes reutilizáveis; `Navigation/MaduSidebar.tsx` contém a navegação do painel.
 - `src/context`: estado do carrinho persistente no navegador.
 - `src/data`: catálogo local e categorias.
-- `src/lib`: regras de comércio, persistência de pedidos e integração Supabase.
-- `supabase/functions/create-order`: entrada pública validada para pedidos de clientes; usa a chave de serviço somente no servidor.
-- `supabase/migrations`: snapshot confiável de preços, operações transacionais de estoque e autorização administrativa.
+- `src/lib`: helpers de comércio, integração Supabase e testes de regras.
 - `src/test`: configuração compartilhada dos testes.
 - `public/assets/brand`: logos e favicons servidos como assets estáticos.
 - `docs/reference`: referências visuais do projeto.
 
 ## Regras de desenvolvimento
-- O navegador envia somente IDs de produto, quantidades e dados opcionais do cliente. O banco confirma preços atuais e cria o pedido antes do compartilhamento.
-- A criação do pedido não reserva nem baixa estoque. Apenas operações administrativas transacionais confirmam venda, cancelam pedido ou estornam estoque.
-- Alterações manuais de saldo feitas pelo cadastro de produtos geram histórico no banco.
-- O compartilhamento de arquivos usa Web Share API quando o dispositivo aceita imagens; `wa.me` é tratado como fallback de texto, nunca como envio de foto.
+- Lógica de negócio fora de componentes de apresentação.
+- Persistência local no navegador apenas para a experiência do cliente.
+- Dados administrativos preparados para evolução com Supabase.
 - Mobile-first como prioridade de layout e lógica.

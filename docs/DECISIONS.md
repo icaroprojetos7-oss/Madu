@@ -13,7 +13,7 @@ A identidade visual foi adaptada ao guia da marca com paleta em rosa apagado e f
 A arquitetura foi estruturada para evoluir para Supabase sem acoplar regras de negócio aos componentes.
 
 ## Decisão 5
-O painel administrativo usa navegação lateral responsiva inspirada na hierarquia visual do Vistta, mas aponta somente para rotas existentes da MADU. Indicadores de catálogo são derivados dos produtos carregados; indicadores de pedidos usam contagens persistidas. Áreas sem integração de pagamentos não apresentam valores como faturamento pago.
+O painel administrativo usa navegação lateral responsiva inspirada na hierarquia visual do Vistta, mas aponta somente para rotas existentes da MADU. Indicadores e agrupamentos exibidos no dashboard são derivados do catálogo carregado; áreas sem dados integrados, como pedidos e faturamento, não são preenchidas com números de demonstração.
 
 ## Decisão 6
 Os assets de marca são mantidos em `public/assets/brand`, e referências visuais do storefront em `docs/reference`. O cabeçalho da loja usa a logo transparente oficial em PNG; favicon e demais formatos de logo ficam organizados junto dela.
@@ -37,7 +37,7 @@ O setup local aplica primeiro o schema completo e depois a migration de policies
 O bucket público `product-images` permite leitura pública dos produtos; upload, atualização e exclusão são restritos a administradores ativos. O bucket e o app limitam imagens a 10 MB. A configuração global do projeto ainda deve permitir o tamanho escolhido.
 
 ## Decisão 13
-A migration de permissões também cria `store_settings`, persiste o WhatsApp e controla `products.is_active`. A vitrine lê apenas produtos ativos; o carrinho reconsulta os dados atuais antes de habilitar o WhatsApp. Na implementação inicial, pedidos não eram persistidos; esse fluxo foi substituído pelas decisões 25–27.
+A migration de permissões também cria `store_settings`, persiste o WhatsApp e controla `products.is_active`. A vitrine lê apenas produtos ativos; o carrinho reconsulta os dados atuais antes de habilitar o WhatsApp. Pedidos e pagamentos não são simulados nem gravados.
 
 ## Decisão 14
 A Edge Function de usuários fixa a versão do `supabase-js` e reutiliza os cabeçalhos CORS oficiais do SDK, mantendo a lista de origins configurada no servidor. A conta administrativa inicial, quando necessária, é promovida exclusivamente pelo SQL Editor confiável.
@@ -71,12 +71,3 @@ Firebase Hosting é a única plataforma de hospedagem da aplicação. O `firebas
 
 ## Decisão 24
 No Supabase local, contas autenticadas podem acessar o painel sem perfil administrativo, inclusive em testes isolados. A exceção exige token com issuer local (`localhost`/`127.0.0.1:54321`); frontend, helpers RLS e Edge Function usam o mesmo limite. Não são criados nem alterados registros em `admin_user_permissions`, e a revogação fica indisponível nesse modo. Tokens de projetos hospedados continuam exigindo o perfil administrativo ativo, sem mudanças nas políticas de produção.
-
-## Decisão 25
-O checkout persiste o pedido antes do compartilhamento e nunca altera o estoque. O navegador envia somente IDs, quantidades e dados opcionais do cliente; a Edge Function `create-order` chama uma função SQL acessível somente ao `service_role`, que confirma o catálogo e calcula os preços no banco. A função de serviço e a chave privada não são expostas no frontend.
-
-## Decisão 26
-Confirmar venda, cancelar, concluir e estornar são operações transacionais de administrador, com validação da permissão persistida, locks em ordem consistente e trilha de auditoria. Confirmação baixa estoque uma única vez; cancelamento pendente não toca no saldo; estorno exige motivo e devolve as quantidades apenas uma vez. Mudanças manuais feitas no formulário de produto registram ajuste/entrada automaticamente.
-
-## Decisão 27
-O compartilhamento de fotos usa `navigator.share()` com arquivos baixados das imagens originais e mensagem contendo pedido, código, quantidade, valor e link. A interface exige um toque posterior à gravação do pedido para preservar a ativação do navegador; o cliente escolhe o WhatsApp e confirma o envio. `wa.me` é fallback somente de texto, nunca é apresentado como envio de imagem. Não há integração Cloud API nem confirmação de envio/entrega.

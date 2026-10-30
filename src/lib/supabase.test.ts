@@ -128,37 +128,6 @@ describe('Supabase product persistence', () => {
     });
   });
 
-  it('preserves the current stock when an admin edits unrelated product details', async () => {
-    mocks.maybeSingle.mockResolvedValue({ data: null, error: null });
-    mocks.single.mockResolvedValue({ data: { ...product, stock: 2, name: 'Bolsa atualizada' }, error: null });
-
-    const result = await updateProductInSupabase(
-      { ...product, name: 'Bolsa atualizada' },
-      { preserveCurrentStock: true },
-    );
-
-    expect(result).toMatchObject({ ok: true, product: { stock: 2, name: 'Bolsa atualizada' } });
-    const updatePayload = mocks.update.mock.calls[0][0] as Record<string, unknown>;
-    expect(updatePayload).not.toHaveProperty('stock');
-  });
-
-  it('rejects a manual stock edit when the saved balance changed concurrently', async () => {
-    mocks.maybeSingle.mockResolvedValue({ data: null, error: null });
-    mocks.single.mockResolvedValue({
-      data: null,
-      error: { code: 'PGRST116', message: 'No rows found' },
-    });
-
-    await expect(updateProductInSupabase(
-      { ...product, stock: 5 },
-      { expectedStock: 3 },
-    )).resolves.toEqual({
-      ok: false,
-      reason: 'O estoque mudou desde que o produto foi aberto. Recarregue o catálogo e revise a quantidade antes de salvar.',
-    });
-    expect(mocks.eq).toHaveBeenCalledWith('stock', 3);
-  });
-
   it('removes a product only after the database confirms its deletion', async () => {
     mocks.maybeSingle.mockResolvedValue({ data: { id: product.id }, error: null });
 
