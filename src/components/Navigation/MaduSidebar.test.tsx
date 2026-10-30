@@ -58,7 +58,7 @@ describe('admin mobile navigation', () => {
     expect(screen.queryByRole('dialog', { name: 'Navegação administrativa' })).not.toBeInTheDocument();
   });
 
-  it('shows only the users permissions item in the admin navigation', () => {
+  it('shows the order, inventory, and user management navigation items', () => {
     render(
       <MaduSidebar
         activePage="usuarios"
@@ -70,7 +70,9 @@ describe('admin mobile navigation', () => {
     );
 
     expect(screen.getByRole('button', { name: /usuários e permissões/i })).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: /produtos/i })).not.toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: /categorias/i })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /pedidos/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /estoque/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /produtos/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /categorias/i })).toBeInTheDocument();
   });
 });
